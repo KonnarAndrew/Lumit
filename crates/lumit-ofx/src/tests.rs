@@ -3177,6 +3177,7 @@ fn a_plugin_is_told_its_frame_and_handed_its_neighbours() {
 
     // A comp at sixty frames a second, resolved half a second in: frame 30.
     let comp = Composition {
+        graph: None,
         master_volume_db: 0.0,
         sound_mix: false,
         groups: Vec::new(),
@@ -3209,6 +3210,7 @@ fn a_plugin_is_told_its_frame_and_handed_its_neighbours() {
             layer: None,
             comp_time: 0.5,
             current_depth: 0,
+            inputs: None,
         }),
     };
     let mut bag = Vec::new();

@@ -582,6 +582,18 @@ pub fn render_layer_input(
 /// nested comp, a text or shape layer) walks the stack exactly as before. With
 /// both, the walk starts after the longest run of ops whose outputs are held,
 /// and files each output it makes when the cache is taking them.
+/// `roto_mattes` is the parallel **roto carriage** (docs/impl/roto.md §5): one
+/// slot per `roto_brush` op, in stack order, holding the matte its propagation
+/// filed for this layer's source frame - or `None`, which is the effect's
+/// passthrough, and what a frame outside the propagated span gets.
+///
+/// `graphs` is the parallel **node graph carriage** (docs/impl/
+/// node-graph-comp.md §2.4): one closure per enabled `node_graph` op, in stack
+/// order. That effect has no kernel - what it does is another walk of the
+/// engine, which only the realiser can reach - so the op calls its closure
+/// where a dispatch would have been and then takes the same road any op takes,
+/// the Mix seam and the matte dissolve included. An op with no closure in the
+/// list passes its picture through, exactly as a missing LUT does.
 #[allow(clippy::too_many_arguments)]
 pub fn run_ops(
     fx: &FxEngine,
@@ -598,59 +610,8 @@ pub fn run_ops(
     mattes: &[LayerInput],
     mask_paths: &[lumit_core::mask::MaskPolyline],
     points_schedules: &[lumit_core::fx::points::PointsSchedule],
-    timings: Option<&mut Vec<f32>>,
-    cache: Option<(&std::cell::RefCell<FxCache>, u128)>,
-) -> Tex {
-    run_ops_with_roto(
-        fx,
-        ctx,
-        tex,
-        w,
-        h,
-        ops,
-        neighbours,
-        flow_fields,
-        tables,
-        layer_inputs,
-        flare_lens,
-        mattes,
-        mask_paths,
-        points_schedules,
-        &[],
-        timings,
-        cache,
-    )
-}
-
-/// [`run_ops`] with the **roto carriage** threaded through: one slot per
-/// `roto_brush` op, in stack order, holding the matte its propagation filed for
-/// this layer's source frame — or `None`, which is the effect's passthrough.
-///
-/// A separate entry point rather than a seventeenth parameter on the one every
-/// test calls: the roto matte is the only side list whose *absence* is the
-/// overwhelmingly normal case, and `run_ops` forwarding an empty slice says so
-/// in one line instead of at twenty call sites.
-///
-/// ponytail: two entry points for one walk; fold them back into one parameter
-/// list the moment a *second* side list wants the same treatment, since three
-/// forwarding wrappers would cost more than the twenty edits do.
-#[allow(clippy::too_many_arguments)]
-pub fn run_ops_with_roto(
-    fx: &FxEngine,
-    ctx: &GpuContext,
-    tex: Tex,
-    w: u32,
-    h: u32,
-    ops: &lumit_core::fx::ResolvedStack,
-    neighbours: &[(i32, Tex)],
-    flow_fields: &[(i32, Tex)],
-    tables: &[Option<ColourTable>],
-    layer_inputs: &[LayerInput],
-    flare_lens: &[Option<(u64, String)>],
-    mattes: &[LayerInput],
-    mask_paths: &[lumit_core::mask::MaskPolyline],
-    points_schedules: &[lumit_core::fx::points::PointsSchedule],
     roto_mattes: &[Option<Tex>],
+    graphs: &[&dyn Fn(Tex, u32, u32) -> Tex],
     mut timings: Option<&mut Vec<f32>>,
     cache: Option<(&std::cell::RefCell<FxCache>, u128)>,
 ) -> Tex {
@@ -789,6 +750,10 @@ pub fn run_ops_with_roto(
     // path's reason: almost no op is a Roto brush, and one shared index would
     // hand a matte to whichever effect happened to sit above.
     let mut roto_i = 0usize;
+    // The node graph carriage's own counter, on its own predicate again: one
+    // closure per `node_graph` op, which is the enumeration `build.rs`'s
+    // `graph_fx_for` fills by.
+    let mut graph_i = 0usize;
     for (i, resolved) in ops.iter().enumerate() {
         let role = resolved.def.schema().matte;
         let paths_n = resolved.def.schema().mask_path_count();
@@ -830,6 +795,13 @@ pub fn run_ops_with_roto(
         } else {
             None
         };
+        let graph = if resolved.def.schema().match_name == lumit_core::comp_graph::NODE_GRAPH {
+            let slot = graphs.get(graph_i).copied();
+            graph_i += 1;
+            slot
+        } else {
+            None
+        };
         let gpu = crate::gpufx::gpu_effect(resolved.def.schema().match_name);
         // An op whose output is already held: its counters still advance (the
         // lists are 1:1 with the ops, held or not; the matte, mask-path and
@@ -842,8 +814,8 @@ pub fn run_ops_with_roto(
                 Some(AuxKind::LensFile) => flare_i += 1,
                 _ => {}
             }
-            // `roto_i` was advanced above with the other per-op slot reads, so
-            // nothing more is owed here.
+            // `roto_i` and `graph_i` were advanced above with the other per-op
+            // slot reads, so nothing more is owed here.
             if let Some(into) = timings.as_mut() {
                 into.push(0.0);
             }
@@ -991,6 +963,31 @@ pub fn run_ops_with_roto(
             if let (Some((mode, mix, _)), Some(input)) = (blend, blend_input) {
                 tex = fx.blend_mix(ctx, &input, &tex, w, h, mode, mix);
             }
+        }
+
+        // **The Node graph effect** (docs/impl/node-graph-comp.md §2.4). It has
+        // no kernel either: what it does is another walk of the engine, which
+        // this function cannot reach, so the realiser hands one closure per
+        // enabled instance and the op calls it here, in the place a dispatch
+        // would have been.
+        //
+        // The Mix and the injected Blend are applied here rather than inside a
+        // kernel, for the plain reason that there is no kernel to apply them
+        // in. `blend_mix` at Normal is the straight lerp every kernel's own Mix
+        // is, so Mix 100 at Normal - the overwhelming case - runs no pass at
+        // all and the picture is the graph's own, to the bit. The matte
+        // dissolve below then runs as it runs after any kernel.
+        if let Some(run) = graph {
+            let mode = resolved.params.choice(lumit_core::fx::BLEND_ID, 0);
+            let mix =
+                (resolved.params.float(lumit_core::fx::MIX_ID, 100.0) / 100.0).clamp(0.0, 1.0);
+            let seam = mode != 0 || mix < 1.0;
+            let input = seam.then(|| tex.clone());
+            let out = run(tex, w, h);
+            tex = match input {
+                Some(input) => fx.blend_mix(ctx, &input, &out, w, h, mode, mix),
+                None => out,
+            };
         }
 
         // **The Roto brush** (docs/impl/roto.md §5). It has no entry in
@@ -1271,6 +1268,14 @@ fn op_keys(
                 }
                 dof_i += 1;
             }
+            // A node graph's picture is not in this op's bag at all: it is a
+            // whole other comp, with its own boxes and its own footage. It
+            // breaks the chain for the same reason a bound plate does - an
+            // output that depends on a picture nobody named must not be filed
+            // under a name that omits it.
+            if schema.match_name == lumit_core::comp_graph::NODE_GRAPH {
+                broken = true;
+            }
             match crate::gpufx::gpu_effect(schema.match_name).map(|g| g.aux()) {
                 Some(AuxKind::Lut) => {
                     match tables.get(lut_i) {
@@ -1528,6 +1533,8 @@ mod tests {
             &[],
             &[],
             &[],
+            &[],
+            &[],
             None,
             Some((cache, key)),
         );
@@ -1562,6 +1569,8 @@ mod tests {
             W,
             H,
             ops,
+            &[],
+            &[],
             &[],
             &[],
             &[],
@@ -1802,6 +1811,8 @@ mod tests {
             W,
             H,
             &ops,
+            &[],
+            &[],
             &[],
             &[],
             &[],
@@ -2088,6 +2099,8 @@ mod tests {
             &[],
             &[],
             &[],
+            &[],
+            &[],
             None,
             None,
         );
@@ -2149,6 +2162,8 @@ mod tests {
                 &[LayerInput::Texture(source(&ctx)), LayerInput::Absent],
                 &[],
                 &[],
+                &[],
+                &[],
                 None,
                 Some((&cache, 7)),
             );
@@ -2178,6 +2193,8 @@ mod tests {
                 &[LayerInput::Absent, LayerInput::Texture(source(&ctx))],
                 &[],
                 &[],
+                &[],
+                &[],
                 None,
                 Some((&cache, 7)),
             );
@@ -2200,6 +2217,8 @@ mod tests {
                 H,
                 &ops,
                 &[(-1, source(&ctx))],
+                &[],
+                &[],
                 &[],
                 &[],
                 &[],
@@ -2248,6 +2267,8 @@ mod tests {
                 &[],
                 &[],
                 &[lut(mtime)],
+                &[],
+                &[],
                 &[],
                 &[],
                 &[],
@@ -2459,6 +2480,8 @@ mod tests {
             W,
             H,
             ops,
+            &[],
+            &[],
             &[],
             &[],
             &[],

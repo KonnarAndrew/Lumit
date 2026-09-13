@@ -813,6 +813,7 @@ fn a_correction_renames_exactly_the_frames_it_spoiled() {
             retime: None,
             interpolation: Default::default(),
             parked_flow: None,
+            graph_inputs: None,
             blend: Default::default(),
             masks: Vec::new(),
             paint: Vec::new(),
@@ -824,6 +825,7 @@ fn a_correction_renames_exactly_the_frames_it_spoiled() {
         };
         layer.effects = vec![brush];
         let comp = Composition {
+            graph: None,
             master_volume_db: 0.0,
             sound_mix: false,
             groups: Vec::new(),
