@@ -492,6 +492,7 @@ means editing the spec, in the same commit as the code that settles it.
 | Colour, type, density, motion, voice | `15-DESIGN.md` |
 | Phases and their gates | `16-ROADMAP.md` |
 | How the frontend and the engine talk | `17-BRIDGE-CONTRACT.md` |
+| What a node graph composition is, and how it is built and evaluated | `impl/node-graph-comp.md` |
 
 Around them:
 

@@ -3051,6 +3051,7 @@ mod tests {
             ..Marker::user(Uuid::now_v7(), rat(2, 1))
         };
         let comp = Composition {
+            graph: None,
             master_volume_db: 0.0,
             sound_mix: false,
             groups: Vec::new(),
@@ -3219,6 +3220,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut doc = doc_with_item();
         let mut comp = lumit_core::model::Composition {
+            graph: None,
             master_volume_db: 0.0,
             sound_mix: false,
             groups: Vec::new(),
@@ -3259,6 +3261,7 @@ mod tests {
             retime: None,
             interpolation: Default::default(),
             parked_flow: None,
+            graph_inputs: None,
             blend: Default::default(),
             masks: Vec::new(),
             paint: Vec::new(),
@@ -3358,6 +3361,159 @@ mod tests {
         assert_eq!(got, wanted, "the whole graph must survive the file");
 
         // And a wired project re-saves byte for byte as well.
+        let d = dir.path().join("d.lum");
+        save(&back, &d).unwrap();
+        assert_eq!(
+            entry_bytes(&c, "project.json"),
+            entry_bytes(&d, "project.json")
+        );
+    }
+
+    /// **A project written before node graphs existed is untouched by them**
+    /// (docs/impl/node-graph-comp.md §1.1, test 1).
+    ///
+    /// `Composition::graph` is additive with a serde default and is skipped
+    /// while `None`, so an ordinary comp carries no such key, opening and
+    /// re-saving reproduces the same bytes, and no schema version moves. A node
+    /// graph then round-trips whole: every kind of box, the wires, the
+    /// positions, the exposure and a group.
+    #[test]
+    fn an_untouched_project_gains_no_comp_graph_and_re_saves_byte_for_byte() {
+        use lumit_core::comp_graph::{
+            CompGraph, GraphEdge, GraphGroup, GraphInput, GraphNode, InputKind,
+        };
+        use lumit_core::graph::{INPUT_PORT, OUTPUT_PORT};
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut doc = doc_with_item();
+        let plate = doc.items[0].id();
+        let mut comp = lumit_core::model::Composition {
+            master_volume_db: 0.0,
+            sound_mix: false,
+            groups: Vec::new(),
+            beat_grid: None,
+            graph: None,
+            id: Uuid::now_v7(),
+            name: "Comp 1".into(),
+            width: 1920,
+            height: 1080,
+            frame_rate: lumit_core::time::FrameRate::new(25, 1).unwrap(),
+            duration: lumit_core::time::Duration(lumit_core::time::Rational::new(10, 1).unwrap()),
+            background: lumit_core::model::LinearColour::BLACK,
+            work_area: None,
+            layers: Vec::new(),
+            markers: Vec::new(),
+            motion_blur: Default::default(),
+            extra: serde_json::Map::new(),
+        };
+        let comp_id = comp.id;
+        doc.items
+            .push(lumit_core::model::ProjectItem::Composition(comp.clone()));
+
+        // 1. The shape before node graphs: no `graph` key anywhere in the file.
+        let a = dir.path().join("a.lum");
+        save(&doc, &a).unwrap();
+        let json = String::from_utf8(entry_bytes(&a, "project.json")).unwrap();
+        assert!(
+            !json.contains("\"graph\""),
+            "an ordinary composition must carry no graph key"
+        );
+
+        // 2. Open and re-save: the same bytes, so nothing was invented on load.
+        let (reopened, _) = open(&a).unwrap();
+        assert!(reopened
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                lumit_core::model::ProjectItem::Composition(c) => Some(c),
+                _ => None,
+            })
+            .all(|c| c.graph.is_none()));
+        let b = dir.path().join("b.lum");
+        save(&reopened, &b).unwrap();
+        assert_eq!(
+            entry_bytes(&a, "project.json"),
+            entry_bytes(&b, "project.json"),
+            "opening and re-saving an untouched project must reproduce its bytes"
+        );
+
+        // 3. A node graph round-trips whole: one box of every kind, the wires,
+        // the positions, the exposure and a group.
+        let read = GraphNode::Read {
+            id: Uuid::now_v7(),
+            item: plate,
+            custom_name: Some("The plate".into()),
+        };
+        let input = GraphNode::Input {
+            id: Uuid::now_v7(),
+            input: GraphInput {
+                id: "amount".into(),
+                label: "Amount".into(),
+                kind: InputKind::Number,
+                default: [7.0, 0.0, 0.0, 1.0],
+                min: 0.0,
+                max: 100.0,
+                unit: lumit_core::fx::Unit::Px,
+                preview: None,
+            },
+        };
+        let mut blur = lumit_core::fx::instantiate("blur").unwrap();
+        blur.custom_name = Some("Soften the sign".into());
+        let blur_id = blur.id;
+        let wiggle = lumit_core::fx::instantiate("wiggle").unwrap();
+        let wiggle_id = wiggle.id;
+        let out = GraphNode::Output { id: Uuid::now_v7() };
+        let (read_id, input_id, out_id) = (read.id(), input.id(), out.id());
+        let wanted = CompGraph {
+            nodes: vec![read, input, GraphNode::Fx(blur), GraphNode::Fx(wiggle), out],
+            edges: vec![
+                GraphEdge {
+                    from: read_id,
+                    from_port: OUTPUT_PORT.id.into(),
+                    to: blur_id,
+                    to_port: INPUT_PORT.id.into(),
+                },
+                GraphEdge {
+                    from: input_id,
+                    from_port: "value".into(),
+                    to: wiggle_id,
+                    to_port: "amount".into(),
+                },
+                GraphEdge {
+                    from: wiggle_id,
+                    from_port: "value".into(),
+                    to: blur_id,
+                    to_port: "radius".into(),
+                },
+                GraphEdge {
+                    from: blur_id,
+                    from_port: OUTPUT_PORT.id.into(),
+                    to: out_id,
+                    to_port: INPUT_PORT.id.into(),
+                },
+            ],
+            layout: vec![(read_id, [10.5, -20.25]), (out_id, [640.0, 0.0])],
+            exposed: vec![blur_id],
+            groups: vec![GraphGroup {
+                name: "The plate".into(),
+                colour: 3,
+                members: vec![read_id, blur_id],
+            }],
+        };
+        comp.graph = Some(wanted.clone());
+        let mut graphed = doc.clone();
+        for item in &mut graphed.items {
+            if let lumit_core::model::ProjectItem::Composition(c) = item {
+                *c = comp.clone();
+            }
+        }
+        let c = dir.path().join("c.lum");
+        save(&graphed, &c).unwrap();
+        let (back, _) = open(&c).unwrap();
+        let got = back.comp(comp_id).expect("the comp").graph.clone();
+        assert_eq!(got, Some(wanted), "the whole graph must survive the file");
+
+        // And a node graph project re-saves byte for byte as well.
         let d = dir.path().join("d.lum");
         save(&back, &d).unwrap();
         assert_eq!(
@@ -3551,6 +3707,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut doc = doc_with_item();
         let mut comp = lumit_core::model::Composition {
+            graph: None,
             master_volume_db: 0.0,
             sound_mix: false,
             groups: Vec::new(),
@@ -3597,6 +3754,7 @@ mod tests {
             retime: None,
             interpolation: Default::default(),
             parked_flow: None,
+            graph_inputs: None,
             blend: Default::default(),
             masks: Vec::new(),
             paint: Vec::new(),
@@ -3749,6 +3907,7 @@ mod tests {
     fn a_composition_no_picture_could_be_is_refused_rather_than_opened() {
         fn comp_sized(width: u32, height: u32) -> lumit_core::model::Composition {
             lumit_core::model::Composition {
+                graph: None,
                 master_volume_db: 0.0,
                 sound_mix: false,
                 groups: Vec::new(),
