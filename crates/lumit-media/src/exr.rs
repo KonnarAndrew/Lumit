@@ -61,9 +61,8 @@ struct Ceilings {
     channels: u64,
     /// What the whole file may occupy once decoded, across every part.
     ///
-    /// [`Limits::IMAGE`]'s byte ceiling: one 16K RGBA float frame with room to
-    /// spare, which is the largest single picture this application has business
-    /// decoding in one piece.
+    /// [`Limits::IMAGE`]'s byte ceiling, sized for the reader's peak: a 16K
+    /// RGBA float frame counted twice, the decoder's copy and the result.
     decoded_bytes: u64,
 }
 
@@ -97,7 +96,7 @@ fn weigh_header_within(path: &Path, ceilings: Ceilings) -> Result<u64, MediaErro
         let size = header.layer_size;
         let (width, height) = (size.width() as u64, size.height() as u64);
         if width > ceilings.dimension || height > ceilings.dimension {
-            return Err(MediaError::TooLarge(IngressError::Bytes {
+            return Err(MediaError::TooLarge(IngressError::Dimension {
                 needed: width.max(height),
                 limit: ceilings.dimension,
             }));
@@ -213,25 +212,22 @@ pub fn read_channels(
         layer.size.height() as u64,
     )?)?;
 
-    // One pass per slot, so a channel named twice is read once per slot and a
-    // slot naming nothing costs nothing.
-    let mut planes: [Option<Vec<f32>>; 4] = [None, None, None, None];
-    for (slot, name) in wanted.iter().enumerate() {
-        let Some(name) = name else { continue };
-        let Some(channel) = layer
+    // Each slot's samples, by reference into the decoded layer: a channel named
+    // twice is read once per slot, a slot naming nothing costs nothing, and
+    // nothing is copied until it lands in the interleaved frame below. There
+    // used to be a `Vec<f32>` per slot in between, which was a third whole
+    // raster held at once — the decoder's, the planes, the result — and the
+    // budget charged for it, so the 16K frame the IMAGE ceiling exists to admit
+    // was decoded in full and then refused.
+    let planes: [Option<&exr::prelude::FlatSamples>; 4] = std::array::from_fn(|slot| {
+        let name = wanted[slot].as_ref()?;
+        layer
             .channel_data
             .list
             .iter()
             .find(|c| c.name.to_string() == *name)
-        else {
-            continue;
-        };
-        let mut plane = budget.vec_with_capacity::<f32>(px)?;
-        for i in 0..px {
-            plane.push(sample_at(&channel.sample_data, i));
-        }
-        planes[slot] = Some(plane);
-    }
+            .map(|c| &c.sample_data)
+    });
 
     // Four bytes a channel, four channels a pixel.
     let interleaved = checked_usize(checked_raster_bytes(
@@ -245,10 +241,7 @@ pub fn read_channels(
         for (slot, plane) in planes.iter().enumerate() {
             // An unfilled alpha is opaque; an unfilled colour is black.
             let default = if slot == 3 { 1.0f32 } else { 0.0 };
-            let v = plane
-                .as_ref()
-                .and_then(|p| p.get(i).copied())
-                .unwrap_or(default);
+            let v = plane.map_or(default, |samples| sample_at(samples, i));
             rgba.extend_from_slice(&v.to_le_bytes());
         }
     }
@@ -503,7 +496,8 @@ mod tests {
         );
 
         // And a dimension no picture has is refused before anything is
-        // multiplied by it.
+        // multiplied by it — as a *dimension*, so the sentence the user sees
+        // is about pixels on a side and not about bytes of memory.
         let tight = weigh_header_within(
             &out,
             Ceilings {
@@ -514,7 +508,10 @@ mod tests {
         assert!(
             matches!(
                 tight,
-                Err(MediaError::TooLarge(IngressError::Bytes { limit: 3, .. }))
+                Err(MediaError::TooLarge(IngressError::Dimension {
+                    needed: 4,
+                    limit: 3
+                }))
             ),
             "an oversized picture must be refused: {tight:?}"
         );

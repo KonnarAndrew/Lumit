@@ -174,9 +174,14 @@ impl Session {
                 // reclaims it when the last of us exits. Only when it really is
                 // mapped — acknowledging a ring we failed to open would have
                 // the host unlink a file we still need to try again through.
-                if self.ring.is_some() {
-                    self.reply(&BrokerMessage::RingOpened)?;
-                }
+                // And say so when it is not, for the same host: silence here
+                // cost it the whole handshake timeout on every spawn, regrow
+                // and restart of a session that could not render anyway.
+                self.reply(&if self.ring.is_some() {
+                    BrokerMessage::RingOpened
+                } else {
+                    BrokerMessage::RingRefused
+                })?;
                 Ok(())
             }
             HostMessage::Describe => {

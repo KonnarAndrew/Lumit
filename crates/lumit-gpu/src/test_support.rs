@@ -65,6 +65,9 @@ impl SharedGpu {
         // one a card the ledger believes is already half full, which is a
         // failure that moves about as tests are added.
         self.ctx.release_frame_memory();
+        // `release_frame_memory` latches the abandoned frame's overdraft as
+        // "the last frame's"; the next test did not draw that frame.
+        self.ctx.last_overdrawn.set(0);
         // The budgets too: a test that lowered one to reach a ceiling must not
         // leave every test after it renting a smaller card.
         self.ctx

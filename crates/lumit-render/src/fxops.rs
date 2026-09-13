@@ -401,14 +401,7 @@ impl FxCache {
         {
             return false;
         }
-        let before = self.lru.used_bytes();
-        if before == 0 {
-            return false;
-        }
-        let budget = self.lru.budget_bytes();
-        self.lru.set_budget(before / 2);
-        self.lru.set_budget(budget);
-        self.lru.used_bytes() < before
+        self.lru.evict_cold_half()
     }
 
     /// `(used_bytes, budget_bytes, entries)`.
@@ -1075,7 +1068,17 @@ pub fn run_ops_with_roto(
         // bigger than the whole budget is never queued at all — the store
         // refuses it on arrival, so holding it would buy a certain eviction.
         let mut queueing = false;
-        if let (Some(key), true) = (named, filing) {
+        // Only a picture this op *made* is queued — `tex != given`, the same
+        // test the recycling below runs on. An op that passed its input
+        // through produced nothing to file: what it holds is the store's own
+        // held prefix, the layer's source, or the entry queued one op ago.
+        // Queuing it anyway would put a texture the walk does not own into
+        // `made`, where dropping it from the front records a clear over a
+        // picture something else is still reading, and handing it to the
+        // store charges the frame for bytes it never paid. Not filing it
+        // costs nothing either: the next walk hits one op earlier and re-runs
+        // a pass that draws nothing.
+        if let (Some(key), true, true) = (named, filing, tex != given) {
             let bytes = intermediate_bytes(tex.width(), tex.height());
             if bytes <= room {
                 // Make room the way the store would, from the front: this
@@ -1086,10 +1089,12 @@ pub fn run_ops_with_roto(
                     let (_, dropped) = made.remove(0);
                     queued = queued
                         .saturating_sub(intermediate_bytes(dropped.width(), dropped.height()));
-                    // The op after it has run, so nothing recorded from here
-                    // on reads it — the same promise `spent` makes one
-                    // iteration later. Unless an op passed it straight
-                    // through, in which case the chain is still holding it.
+                    // Safe to hand back: every entry in `made` is a picture
+                    // this walk made (the guard above), held nowhere else in
+                    // the queue (each op's output is queued once), and read
+                    // only by the op after it, which has run. The one thing
+                    // left to check is that it is not the picture the chain
+                    // holds right now.
                     if dropped != tex {
                         ctx.recycle(dropped);
                     }
@@ -1729,6 +1734,92 @@ mod tests {
         assert_eq!(
             easy, full,
             "a full card renders what an empty one renders, to the bit"
+        );
+    }
+
+    /// **A passthrough op must never put a picture the walk did not make into
+    /// the queue.** Such an op hands its input on unchanged (`tex == given`),
+    /// and that input is one of three things the walk does not own: the
+    /// layer's source, the store's held prefix, or the entry queued one op
+    /// earlier. Queued anyway, the first drop to make room records a clear
+    /// over it and offers it to the pool, and the next pass draws its output
+    /// *into* it.
+    ///
+    /// The source is the case a test can see directly: a Roto brush with no
+    /// matte first, two ops after it, room in the store for one. Without the
+    /// guard the walk clears the picture it was handed and draws op two over
+    /// the top of it — visible to whoever else holds that texture, which in a
+    /// real frame is the realiser. Caught by review, not by a test, which is
+    /// why this one exists.
+    #[test]
+    fn a_passthrough_op_does_not_hand_the_layers_source_back_to_the_pool() {
+        let Some(ctx) = lumit_gpu::test_support::lease() else {
+            lumit_gpu::no_adapter();
+            return;
+        };
+        let fx = ctx.fx();
+        let src = source(&ctx);
+        let before = lumit_gpu::fx::readback_linear_f32(&ctx, &src, W, H).expect("readback");
+
+        // Room for exactly one output, so making room is forced on the
+        // second op.
+        let mut c = FxCache::new((W * H * 8) as usize);
+        c.keep_outputs(true);
+        let warm = std::cell::RefCell::new(c);
+
+        let inst = |name: &str, stops: f32| {
+            let mut i = lumit_core::fx::instantiate(name).expect("a built-in");
+            for p in &mut i.params {
+                if p.id == "stops" {
+                    p.value = lumit_core::model::EffectValue::Float(
+                        lumit_core::anim::Property::fixed(f64::from(stops)),
+                    );
+                }
+            }
+            i
+        };
+        let insts = vec![
+            inst(lumit_core::roto::ROTO_BRUSH, 0.0),
+            inst("exposure", 0.05),
+            inst("exposure", 0.10),
+        ];
+        let ops = lumit_core::fx::resolve_stack(
+            &insts,
+            0.0,
+            1000.0,
+            1.0,
+            &lumit_core::fx::MarkerContext::NONE,
+            std::sync::Arc::new(lumit_core::expression::ExpressionContext::detached()),
+        );
+
+        // Inside a frame, so the pool is live and a dropped entry is really
+        // recycled — the shape the realiser runs in.
+        ctx.begin_frame();
+        let out = run_ops(
+            fx,
+            &ctx,
+            src.clone(),
+            W,
+            H,
+            &ops,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            Some((&warm, 7)),
+        );
+        ctx.end_frame();
+
+        assert_ne!(out, src, "the walk made a new picture for its output");
+        let after = lumit_gpu::fx::readback_linear_f32(&ctx, &src, W, H).expect("readback");
+        assert_eq!(
+            before, after,
+            "the layer's source was handed to the pool and drawn over"
         );
     }
 

@@ -193,6 +193,11 @@ pub enum BrokerMessage {
     /// both processes, it disappears the moment the last of them exits — a
     /// crash included — and no third program can open it by name in between.
     RingOpened,
+    /// The broker could not map the ring the host named. Sent so the host
+    /// returns at once rather than waiting out the handshake timeout for an
+    /// acknowledgement that is never coming; the ring's file is left where it
+    /// is, since the host may yet try again through it.
+    RingRefused,
     /// What the bundle holds. The index into this list is what
     /// [`HostMessage::CreateInstance`] names.
     Described {

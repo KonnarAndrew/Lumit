@@ -379,11 +379,39 @@ jobs:
             -in dist/lumit-release-manifest.json \
             -out "$RUNNER_TEMP/manifest.sig"
           base64 -w0 "$RUNNER_TEMP/manifest.sig" > dist/lumit-release-manifest.json.sig
-          rm -f "$RUNNER_TEMP/release-key.pem" "$RUNNER_TEMP/manifest.sig"
 
           # Verify what was just made, with the public half derived from the
           # same key, before it goes anywhere. A signature nobody checked is a
           # signature that gets discovered to be wrong by every user at once.
+          # Verified from the *published* file, not the raw one, so what is
+          # checked is what the updater will read.
+          openssl pkey -in "$RUNNER_TEMP/release-key.pem" -pubout \
+            -out "$RUNNER_TEMP/release-key.pub"
+          base64 -d dist/lumit-release-manifest.json.sig > "$RUNNER_TEMP/manifest.check.sig"
+          openssl pkeyutl -verify -rawin -pubin \
+            -inkey "$RUNNER_TEMP/release-key.pub" \
+            -in dist/lumit-release-manifest.json \
+            -sigfile "$RUNNER_TEMP/manifest.check.sig"
+
+          # And that the key that signed is the key the application pins.
+          # A rotated or mistyped secret still signs perfectly well; only this
+          # comparison catches it before a release every updater refuses.
+          # `updateSigningKey` is base64 of the raw 32-byte public key, which
+          # is the last 32 bytes of the DER SubjectPublicKeyInfo. Skipped while
+          # the pin is empty, which is the tree as it stands (see
+          # docs/impl/release-signing.md for the two commands that set it).
+          pinned="$(sed -n "s/^const String updateSigningKey = '\(.*\)';\$/\1/p" \
+            flutter_ui/lib/state/release_signature.dart)"
+          derived="$(openssl pkey -in "$RUNNER_TEMP/release-key.pem" -pubout -outform DER \
+            | tail -c 32 | base64 -w0)"
+          if [ -n "$pinned" ] && [ "$pinned" != "$derived" ]; then
+            echo "RELEASE_SIGNING_KEY is not the key flutter_ui pins (updateSigningKey)." >&2
+            echo "The release would be signed with a key every updater refuses." >&2
+            exit 1
+          fi
+          rm -f "$RUNNER_TEMP/release-key.pem" "$RUNNER_TEMP/release-key.pub" \
+            "$RUNNER_TEMP/manifest.sig" "$RUNNER_TEMP/manifest.check.sig"
+
           echo "Manifest covers:"
           grep -o '"name":"[^"]*"' dist/lumit-release-manifest.json
 

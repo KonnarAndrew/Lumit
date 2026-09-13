@@ -157,6 +157,11 @@ pub enum BrokerMessage {
     /// The ring is mapped, and the host may now unlink its path. On Unix a
     /// mapping outlives the name it was opened through.
     RingOpened,
+    /// The broker could not map the ring the host named. Sent so the host
+    /// returns at once rather than waiting out the handshake timeout for an
+    /// acknowledgement that is never coming; the ring's file is left where it
+    /// is, since the host may yet try again through it.
+    RingRefused,
     /// What the module holds.
     Described {
         /// One per plugin that described itself successfully.

@@ -172,29 +172,43 @@ unsafe extern "C" fn memory_alloc(
         // plugin can free, so it gets the smallest real block.
         let size = n_bytes.max(1);
 
-        // The budget, before the allocator is asked rather than after it has
-        // said yes. Checked against what this plugin already holds, so a
-        // thousand small requests meet the same ceiling one enormous one does —
-        // which is the shape that actually turns up, since a runaway is a loop
-        // and not a single number.
+        let layout = Layout::from_size_align(size, ALIGN).map_err(|_| Status::ErrMemory)?;
+
+        // The budget, *reserved under the lock* before the allocator is asked.
+        // Checked against what this plugin already holds, so a thousand small
+        // requests meet the same ceiling one enormous one does — which is the
+        // shape that actually turns up, since a runaway is a loop and not a
+        // single number.
+        //
+        // Reserved, not merely checked: a plugin fanning out through
+        // `multiThread` calls this from several threads at once, and a check
+        // that released the lock before the allocation was recorded let every
+        // one of them see the same room and every one of them take it — N
+        // workers, N blocks past the ceiling. Bumping the count here makes
+        // what one thread has claimed visible to the next before either has a
+        // byte. Rolled back below if the allocator then says no.
         {
-            let live = plugin_bytes_live();
-            let after = live.checked_add(size).ok_or(Status::ErrMemory)?;
+            let mut host = state();
+            let after = host
+                .allocated_bytes
+                .checked_add(size)
+                .ok_or(Status::ErrMemory)?;
             if after > MAX_PLUGIN_BYTES {
                 return Err(Status::ErrMemory);
             }
+            host.allocated_bytes = after;
         }
 
-        let layout = Layout::from_size_align(size, ALIGN).map_err(|_| Status::ErrMemory)?;
         // SAFETY: the layout has a non-zero size, which is `alloc`'s one
         // requirement; the null return is handled below.
         let ptr = unsafe { alloc(layout) };
         if ptr.is_null() {
+            let mut host = state();
+            host.allocated_bytes = host.allocated_bytes.saturating_sub(size);
             return Err(Status::ErrMemory);
         }
         let mut host = state();
         host.allocations.insert(ptr as usize, size);
-        host.allocated_bytes = host.allocated_bytes.saturating_add(size);
         // SAFETY: the plugin's out-parameter, checked non-null above.
         unsafe { *allocated_data = ptr.cast() };
         Ok(())

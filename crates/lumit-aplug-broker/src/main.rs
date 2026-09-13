@@ -173,9 +173,17 @@ impl Session {
                 // directory. Only when it really is mapped: acknowledging a
                 // ring we failed to open would have the host unlink a file we
                 // still need to try again through.
-                if self.ring.is_some() {
-                    say(&mut self.sender, &BrokerMessage::RingOpened)?;
-                }
+                // And say so when it is not: silence here cost the host the
+                // whole handshake timeout on every spawn of a session that
+                // could not render anyway.
+                say(
+                    &mut self.sender,
+                    &if self.ring.is_some() {
+                        BrokerMessage::RingOpened
+                    } else {
+                        BrokerMessage::RingRefused
+                    },
+                )?;
                 Ok(())
             }
             HostMessage::Describe { disabled } => self.describe(&disabled),

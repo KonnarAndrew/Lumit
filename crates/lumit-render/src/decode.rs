@@ -520,7 +520,7 @@ impl DecodePool {
         if !self.ram_pressure().should_trim() {
             return false;
         }
-        halve(&mut self.frame_cache) | halve(&mut self.flow_cache)
+        self.frame_cache.evict_cold_half() | self.flow_cache.evict_cold_half()
     }
 
     /// Reserve what a decoded frame's rasters weigh, for as long as the frame
@@ -996,26 +996,6 @@ fn combine_pair(
     } else {
         engine.synthesize_at(&a.rgba, &b.rgba, fw, fh, &fwd, &bwd, w, &set)
     })
-}
-
-/// Give back about half of a store, by its own eviction order, and answer
-/// whether anything went.
-///
-/// The store's own cost-aware score decides which (docs/06 §5.3) — the same one
-/// that runs when its budget is exceeded — reached by asking it to fit a
-/// smaller budget for a moment. Its real budget is put straight back, so this
-/// is a one-off release and not a permanent shrink, and a pin is never dropped.
-fn halve<K: std::hash::Hash + Eq + Clone, V: lumit_cache::ByteSized>(
-    store: &mut lumit_cache::ByteLru<K, V>,
-) -> bool {
-    let before = store.used_bytes();
-    if before == 0 {
-        return false;
-    }
-    let budget = store.budget_bytes();
-    store.set_budget(before / 2);
-    store.set_budget(budget);
-    store.used_bytes() < before
 }
 
 #[allow(clippy::too_many_arguments)] // one worker call; bundling would hide it

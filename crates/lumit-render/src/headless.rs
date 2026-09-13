@@ -1734,12 +1734,14 @@ impl HeadlessRenderer {
         self.gpu.ledger().set_budget(lumit_budget::Tier::Ram, ram);
     }
 
-    /// Bytes the frame being drawn asked the card for and did not get — see
-    /// [`lumit_gpu::GpuContext::vram_overdrawn`]. Nought on every ordinary
-    /// frame; anything else is a frame that outgrew what was reserved for it.
+    /// Bytes the last frame drawn asked the card for and did not get — see
+    /// [`lumit_gpu::GpuContext::last_frame_overdrawn`]. Nought on every
+    /// ordinary frame; anything else is a frame that outgrew what was reserved
+    /// for it. The *latched* figure, because this is read between frames,
+    /// where the live one has always just been reset.
     #[must_use]
     pub fn vram_overdrawn(&self) -> u64 {
-        self.gpu.vram_overdrawn()
+        self.gpu.last_frame_overdrawn()
     }
 
     /// What the graphics driver holds for this renderer's device — see

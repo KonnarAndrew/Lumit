@@ -947,6 +947,10 @@ impl Broker {
                     self.ring.unlink_now_it_is_shared();
                     return;
                 }
+                // Refused: the name stays in the directory for a retry, and
+                // the first render will say what is wrong. What matters is
+                // that this returns now and not after the timeout.
+                Ok(BrokerMessage::RingRefused) => return,
                 _ => return,
             }
         }

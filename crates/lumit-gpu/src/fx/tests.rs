@@ -15953,6 +15953,47 @@ fn a_frame_that_outgrows_its_reservation_says_so() {
     ctx.ledger().set_budget(Tier::Vram, was);
 }
 
+/// The overdraft the readout shows is the one the **last closed frame** left,
+/// not the live count — which is zeroed as the frame closes, and so read from
+/// between frames (where the worker publishes) is always nought. That made the
+/// readout's field dead: a real overdraft was measurable mid-frame and
+/// invisible afterwards.
+#[test]
+fn the_last_frames_overdraft_survives_the_frame_closing() {
+    use lumit_budget::Tier;
+
+    let Some(ctx) = crate::test_support::lease() else {
+        crate::no_adapter();
+        return;
+    };
+    let was = ctx.ledger().budget(Tier::Vram);
+    let one = crate::texture_bytes(ctx.working(), 64, 36);
+
+    ctx.ledger()
+        .set_budget(Tier::Vram, ctx.ledger().used(Tier::Vram));
+    ctx.try_begin_frame(0).expect("an empty reservation");
+    let _over = work_texture(&ctx, 64, 36, "overdrawn-latched");
+    assert_eq!(ctx.vram_overdrawn(), one, "live, mid-frame");
+    ctx.end_frame();
+
+    assert_eq!(
+        ctx.vram_overdrawn(),
+        0,
+        "the live count belongs to the next frame"
+    );
+    assert_eq!(
+        ctx.last_frame_overdrawn(),
+        one,
+        "and the latched one is what that frame left behind"
+    );
+
+    // A clean frame closing over it clears it: it is the *last* frame's.
+    ctx.ledger().set_budget(Tier::Vram, was);
+    ctx.try_begin_frame(0).expect("room again");
+    ctx.end_frame();
+    assert_eq!(ctx.last_frame_overdrawn(), 0);
+}
+
 /// **A texture that outlives its frame** takes its charge with it: the frame
 /// puts the bytes down as the new owner picks them up, so the card is never
 /// told it holds the same texture twice, and the frame ending does not release

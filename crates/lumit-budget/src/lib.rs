@@ -580,14 +580,19 @@ impl Reservation {
     ///
     /// The reservation that was handed in, unchanged, when its tier is not this
     /// one's.
-    pub fn absorb(&mut self, other: Reservation) -> Result<(), Reservation> {
+    pub fn absorb(&mut self, mut other: Reservation) -> Result<(), Reservation> {
         if other.tier != self.tier {
             return Err(other);
         }
-        // Take the bytes across and stop `other`'s destructor giving them back:
-        // the memory has not been released, only re-filed.
+        // Take the bytes across, then let `other` drop *empty*: a destructor
+        // giving back nought is a no-op, and dropping — rather than
+        // forgetting — is what releases its `Arc` on the ledger. `mem::forget`
+        // here leaked one strong count per fold, which is one per work texture
+        // per frame, and a ledger that could never be freed once its renderer
+        // was rebuilt.
         self.bytes = self.bytes.saturating_add(other.bytes);
-        std::mem::forget(other);
+        other.bytes = 0;
+        drop(other);
         Ok(())
     }
 
@@ -670,6 +675,31 @@ mod tests {
         // a modest reported figure is still the better number and is kept.
         let (modest, _) = budgets_for(2 * GB, 24 * GB, true);
         assert_eq!(modest, 2 * GB * 70 / 100);
+    }
+
+    /// `absorb` folds bytes across and lets the absorbed reservation *drop*,
+    /// so its handle on the ledger goes with it. Pinned because the obvious
+    /// implementation — `mem::forget` the absorbed one so its destructor
+    /// cannot give the bytes back — leaks one strong count per fold, and a
+    /// fold happens per work texture per frame.
+    #[test]
+    fn absorbing_a_reservation_does_not_leak_its_hold_on_the_ledger() {
+        let ledger = Ledger::with_budgets(1000, 1000);
+        let mut held = ledger.reserve(Tier::Vram, 100).unwrap();
+        let before = Arc::strong_count(&ledger);
+        for _ in 0..50 {
+            let more = ledger.reserve(Tier::Vram, 10).unwrap();
+            held.absorb(more).unwrap();
+        }
+        assert_eq!(Arc::strong_count(&ledger), before, "fifty folds, no leak");
+        assert_eq!(held.bytes(), 600);
+        assert_eq!(
+            ledger.used(Tier::Vram),
+            600,
+            "and nothing was given back early"
+        );
+        drop(held);
+        assert_eq!(ledger.used(Tier::Vram), 0);
     }
 
     #[test]

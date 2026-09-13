@@ -325,6 +325,27 @@ impl<K: Eq + Hash + Clone, V: ByteSized> ByteLru<K, V> {
         self.resync();
     }
 
+    /// Give back about half of what is held, by this store's own eviction
+    /// order, and answer whether anything went.
+    ///
+    /// The second rung of the degradation ladder (docs/13 §4), for whichever
+    /// store is asked. The cost-aware score decides which entries go — the
+    /// same one that runs when the budget is exceeded (docs/06 §5.3) —
+    /// reached by fitting to a smaller budget for a moment. The real budget is
+    /// put straight back, so this is a one-off release and not a permanent
+    /// shrink, and a pin is never dropped: the decode planner skipped work on
+    /// the strength of one.
+    pub fn evict_cold_half(&mut self) -> bool {
+        let before = self.used;
+        if before == 0 {
+            return false;
+        }
+        let budget = self.budget;
+        self.set_budget(before / 2);
+        self.set_budget(budget);
+        self.used < before
+    }
+
     /// Protect a key from eviction (docs §5.3): the shell pins the displayed
     /// frame and a window around the playhead. Pinning a key not present is
     /// remembered, so it also protects the frame once it lands. Idempotent.
@@ -464,6 +485,23 @@ mod tests {
 
         lru.clear();
         assert_eq!(used(), 0, "and emptying it gives back the whole of it");
+    }
+
+    /// The ladder's second rung, as the store itself: about half goes, by the
+    /// store's own order, the budget comes straight back, and an empty store
+    /// answers that nothing went.
+    #[test]
+    fn evicting_the_cold_half_gives_back_about_half_and_keeps_the_budget() {
+        let mut lru: ByteLru<u32, Vec<u8>> = ByteLru::new(1000);
+        assert!(!lru.evict_cold_half(), "nothing held, nothing to give");
+        for i in 0..8u32 {
+            assert!(lru.insert(i, v(100)));
+        }
+        assert_eq!(lru.used_bytes(), 800);
+        assert!(lru.evict_cold_half());
+        assert!(lru.used_bytes() <= 400, "{} bytes left", lru.used_bytes());
+        assert_eq!(lru.budget_bytes(), 1000, "a one-off release, not a shrink");
+        assert!(lru.insert(99, v(100)), "and the store fills again");
     }
 
     /// A store nobody registered is exactly what it was: its own budget, and

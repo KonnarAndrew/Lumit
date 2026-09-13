@@ -86,6 +86,12 @@ pub enum IngressError {
     #[error("this file holds more items than Lumit reads ({needed}, limit {limit})")]
     Items { needed: u64, limit: u64 },
 
+    /// A picture wider or taller than the reader will take. Its own variant
+    /// rather than [`Self::Bytes`] because the number is pixels on a side, and
+    /// a sentence about "bytes of memory" for it names the wrong fault.
+    #[error("this picture is {needed} pixels on a side, and Lumit reads up to {limit}")]
+    Dimension { needed: u64, limit: u64 },
+
     /// The nesting ceiling. Hit before the stack is, which is the point.
     #[error("this file nests deeper than Lumit reads (limit {limit})")]
     Depth { limit: u32 },
@@ -126,6 +132,7 @@ impl IngressError {
         match self {
             IngressError::Bytes { .. } => "ingress_bytes",
             IngressError::Items { .. } => "ingress_items",
+            IngressError::Dimension { .. } => "ingress_dimension",
             IngressError::Depth { .. } => "ingress_depth",
             IngressError::Work { .. } => "ingress_work",
             IngressError::Overflow => "ingress_overflow",
@@ -189,11 +196,14 @@ impl Limits {
 
     /// One imported picture: an EXR, a still, a sidecar's decoded matte.
     ///
-    /// 4 GiB is one 16K RGBA float frame with room to spare, which is the
-    /// largest single raster this application has any business decoding in one
-    /// piece.
+    /// Sized for the **reader's peak**, not the raster: a 16K RGBA float frame
+    /// is 2.1 GiB, and the EXR reader holds the decoder's own copy of it and
+    /// the interleaved result at once, so it is charged twice. 5 GiB admits
+    /// that frame — the largest single raster this application has any
+    /// business decoding in one piece — with a little to spare, and refuses
+    /// anything a step larger.
     pub const IMAGE: Limits = Limits {
-        bytes: 4 << 30,
+        bytes: 5 << 30,
         items: 4096,
         depth: 8,
         work: 1 << 32,

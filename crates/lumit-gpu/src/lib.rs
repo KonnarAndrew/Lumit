@@ -130,6 +130,14 @@ pub struct GpuContext {
     /// and what the readout shows. Nought on a frame that stayed inside its
     /// budget, which is every ordinary frame.
     overdrawn: std::cell::Cell<u64>,
+    /// What the *last closed* frame overdrew by, latched as it closed.
+    ///
+    /// `overdrawn` is live and is zeroed at `end_frame`, which is right for the
+    /// next frame's grant and wrong for anyone reading after the frame — the
+    /// worker publishes the readout at the start of its next turn, by which
+    /// time a live figure has always been reset to nought. This is the figure
+    /// that survives the close.
+    last_overdrawn: std::cell::Cell<u64>,
     /// How many command buffers **this context** has handed to the driver
     /// ([`Self::submits_so_far`]).
     ///
@@ -484,6 +492,7 @@ impl GpuContext {
             ledger: lumit_budget::Ledger::new(),
             frame_charge: std::cell::RefCell::new(None),
             overdrawn: std::cell::Cell::new(0),
+            last_overdrawn: std::cell::Cell::new(0),
             submits: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             // No callback is installed on a device somebody else opened, so
             // this stays down: a context built this way does not know when its
@@ -579,6 +588,7 @@ impl GpuContext {
             ledger: std::sync::Arc::clone(&self.ledger),
             frame_charge: std::cell::RefCell::new(None),
             overdrawn: std::cell::Cell::new(0),
+            last_overdrawn: std::cell::Cell::new(0),
             submits: std::sync::Arc::clone(&self.submits),
             lost: std::sync::Arc::clone(&self.lost),
         }
@@ -745,6 +755,9 @@ impl GpuContext {
         // Dropping the reservation is the whole release: nothing to remember to
         // call, and no way to call it twice.
         self.frame_charge.borrow_mut().take();
+        // Latched before it is cleared: the live figure belongs to the next
+        // frame's grant, the latched one to whoever asks after this one.
+        self.last_overdrawn.set(self.overdrawn.get());
         self.overdrawn.set(0);
     }
 
@@ -889,6 +902,17 @@ impl GpuContext {
     #[must_use]
     pub fn vram_overdrawn(&self) -> u64 {
         self.overdrawn.get()
+    }
+
+    /// Bytes the **last closed** frame asked the card for and did not get.
+    ///
+    /// The readout's figure. [`Self::vram_overdrawn`] is the live count and is
+    /// zeroed when a frame closes, so read from outside a frame it is always
+    /// nought; this is the value that frame left behind, and it stands until
+    /// the next frame closes over it.
+    #[must_use]
+    pub fn last_frame_overdrawn(&self) -> u64 {
+        self.last_overdrawn.get()
     }
 
     /// Close one [`Self::begin_frame`]. On the outermost one, submit whatever
@@ -1170,6 +1194,7 @@ impl GpuContext {
             ledger,
             frame_charge: std::cell::RefCell::new(None),
             overdrawn: std::cell::Cell::new(0),
+            last_overdrawn: std::cell::Cell::new(0),
             submits: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             lost,
         })
