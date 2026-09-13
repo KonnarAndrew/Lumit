@@ -59,9 +59,9 @@ const double fxLabelColumnWidth = 88;
 const double fxNameColumnWidth = fxKeyColumnWidth + 4 + fxLabelColumnWidth;
 
 /// The room the control column keeps before the label starts taking the
-/// panel's extra width: the Mix row at its natural size, the number, its unit
-/// and the Blend rider on one line.
-const double fxControlColumnWidth = 240;
+/// panel's extra width: what a 480 px panel gave it before the name column
+/// could grow, which every row's riders fit on one line.
+const double fxControlColumnWidth = 300;
 
 /// How wide the label column is on a row [width] wide. The fixed
 /// [fxLabelColumnWidth] until the control column has its room, then the rest
