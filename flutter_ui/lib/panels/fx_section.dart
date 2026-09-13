@@ -58,6 +58,21 @@ const double fxLabelColumnWidth = 88;
 /// label — so the controls stack into one column down the panel.
 const double fxNameColumnWidth = fxKeyColumnWidth + 4 + fxLabelColumnWidth;
 
+/// The room the control column keeps before the label starts taking the
+/// panel's extra width: the Mix row at its natural size, the number, its unit
+/// and the Blend rider on one line.
+const double fxControlColumnWidth = 240;
+
+/// How wide the label column is on a row [width] wide. The fixed
+/// [fxLabelColumnWidth] until the control column has its room, then the rest
+/// of the row, so a long name shows once the panel is dragged wide enough.
+double fxLabelWidthFor(double width) {
+  if (!width.isFinite) return fxLabelColumnWidth;
+  final spare =
+      width - fxKeyColumnWidth - 4 - fxLabelColumnWidth - fxControlColumnWidth;
+  return fxLabelColumnWidth + (spare > 0 ? spare : 0);
+}
+
 /// The width the **Timeline's** fold-out leaves for a stopwatch on a row that
 /// has none. Its lanes are not the Effect controls panel's columns — they
 /// answer to the render-switch column group — so it keeps the single narrow
@@ -531,21 +546,24 @@ Widget fxTwoColumnRow({
 }) =>
     SizedBox(
       height: fxRowHeight(ThemeScope.of(context).theme),
-      child: Row(
-        children: [
-          SizedBox(
-            width: fxKeyColumnWidth,
-            child: keyframeControls == null
-                ? null
-                : Align(
-                    alignment: Alignment.centerLeft, child: keyframeControls),
-          ),
-          const SizedBox(width: 4),
-          SizedBox(width: fxLabelColumnWidth, child: name),
-          Expanded(
-            child: Align(alignment: Alignment.centerLeft, child: control),
-          ),
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) => Row(
+          children: [
+            SizedBox(
+              width: fxKeyColumnWidth,
+              child: keyframeControls == null
+                  ? null
+                  : Align(
+                      alignment: Alignment.centerLeft,
+                      child: keyframeControls),
+            ),
+            const SizedBox(width: 4),
+            SizedBox(width: fxLabelWidthFor(constraints.maxWidth), child: name),
+            Expanded(
+              child: Align(alignment: Alignment.centerLeft, child: control),
+            ),
+          ],
+        ),
       ),
     );
 
@@ -578,33 +596,35 @@ Widget fxGroupHeaderRow(
     onTap: onToggle,
     child: SizedBox(
       height: fxRowHeight(t),
-      child: Row(
-        children: [
-          SizedBox(
-            width: fxKeyColumnWidth,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 1),
-                child: lumitIcon(
-                  open ? LumitIcon.twirlOpen : LumitIcon.twirlClosed,
-                  size: iconSize,
-                  color: open ? t.textPrimary : t.textMuted,
+      child: LayoutBuilder(
+        builder: (context, constraints) => Row(
+          children: [
+            SizedBox(
+              width: fxKeyColumnWidth,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 1),
+                  child: lumitIcon(
+                    open ? LumitIcon.twirlOpen : LumitIcon.twirlClosed,
+                    size: iconSize,
+                    color: open ? t.textPrimary : t.textMuted,
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: 4),
-          SizedBox(
-            width: fxLabelColumnWidth,
-            child: Text(
-              label.toUpperCase(),
-              style: open ? t.kickerOn : t.kicker,
-              overflow: TextOverflow.ellipsis,
+            const SizedBox(width: 4),
+            SizedBox(
+              width: fxLabelWidthFor(constraints.maxWidth),
+              child: Text(
+                label.toUpperCase(),
+                style: open ? t.kickerOn : t.kicker,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-          ),
-          const Expanded(child: SizedBox.shrink()),
-        ],
+            const Expanded(child: SizedBox.shrink()),
+          ],
+        ),
       ),
     ),
   );
