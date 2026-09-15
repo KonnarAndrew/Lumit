@@ -22,6 +22,7 @@ import 'package:lumit_flutter/src/rust/api/composition.dart';
 import 'package:lumit_flutter/src/rust/api/effect.dart';
 import 'package:lumit_flutter/src/rust/api/layer.dart';
 import 'package:lumit_flutter/state/comp_time.dart' show writeMarkers;
+import 'package:lumit_flutter/state/dock.dart';
 import 'package:uuid/uuid.dart';
 
 import 'frb_test_support.dart';
@@ -533,6 +534,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(selectedOn(tester, laneKeyOf(layer)), {1});
 
+      p.uiState.activePane.value = Panel.timeline.pane();
       expect(p.uiState.deleteClaim?.call(), isTrue,
           reason: 'the panel claims Delete while keys are in hand');
       p.uiState.model.refresh();

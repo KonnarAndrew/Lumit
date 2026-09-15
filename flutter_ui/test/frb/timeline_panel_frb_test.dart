@@ -34,6 +34,7 @@ import 'package:lumit_flutter/panels/timeline_navigator.dart';
 import 'package:lumit_flutter/panels/timeline_panel_frb.dart';
 import 'package:lumit_flutter/panels/transform_rows_frb.dart';
 import 'package:lumit_flutter/panels/waveform_frb.dart';
+import 'package:lumit_flutter/state/dock.dart';
 import 'package:lumit_flutter/state/settings.dart';
 import 'package:lumit_flutter/state/timeline_columns.dart';
 import 'package:lumit_flutter/state/tools.dart';
@@ -1126,6 +1127,24 @@ void main() {
           reason: 'the heading holding it marks itself, a shade dimmer');
     });
 
+    /// A Timeline that mounts later keeps the Delete claim it found, so
+    /// effects picked in Effect controls are still what Delete takes there.
+    testWidgets('the Timeline chains the Delete claim it found',
+        (tester) async {
+      final p = withComp();
+      p.comp.addSolidLayer();
+      var effects = 0;
+      p.uiState.deleteClaim = () {
+        effects++;
+        return true;
+      };
+      await mount(tester, p);
+
+      p.uiState.activePane.value = Panel.effectControls.pane();
+      expect(p.uiState.deleteClaim!(), isTrue);
+      expect(effects, 1, reason: 'the earlier claim was still asked');
+    });
+
     /// **Delete removes the selected mask.** The shell's Delete deletes
     /// the selected *layers*; with a mask row picked it stands down and this
     /// claim runs instead, so the key acts on what is actually selected rather
@@ -1137,6 +1156,7 @@ void main() {
       await openMaskRow(tester, p, layer, 'Ellipse');
       // The layer is selected too, which is the case that used to delete it.
       p.uiState.setSelection([layer]);
+      p.uiState.activePane.value = Panel.timeline.pane();
       await tester.pump();
 
       final claim = p.uiState.deleteClaim;
@@ -1250,6 +1270,7 @@ void main() {
       final layer = p.comp.addSolidLayer();
       await openMaskRow(tester, p, layer, 'Ellipse');
       final id = layer.getMasks().single.id;
+      p.uiState.activePane.value = Panel.timeline.pane();
 
       await tester.tap(find.byKey(ValueKey<String>('tl-mask-name-$id')));
       await tester.pump();
