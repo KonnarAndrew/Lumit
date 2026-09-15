@@ -91,10 +91,12 @@ Locale localeFromTag(String tag) {
 /// cannot read has no way back.
 const Map<String, String> languageNames = {
   'en': 'English',
+  'ar': 'العربية',
   'de': 'Deutsch',
   'es': 'Español',
   'kk': 'Қазақша',
   'pl': 'Polski',
+  'pt': 'Português (Brasil)',
   'uk': 'Українська',
   'zh': '简体中文',
   'zh-Hant': '繁體中文',
