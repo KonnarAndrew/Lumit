@@ -2013,7 +2013,7 @@ two, and `Shift+=`.
 - Layer drag moves in time; vertical drag reorders the stack. `[`/`]` move the selected
   layer's in/out to the playhead; `Alt+[`/`Alt+]` trim in/out at the playhead.
 
-  **The two pairs differ in what happens to the animation** (A8 — the Caddis study's slide
+  **The two pairs differ in what happens to the animation** (A8, slide
   and trim as two gestures). A **move** carries the layer's content with the bar, and a
   keyframe's time is the layer's own: it reaches the composition's clock through the start
   offset, which travels with a move — so `[` and `]` slide every keyframe on the
