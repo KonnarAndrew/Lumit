@@ -46,6 +46,7 @@ import 'package:lumit_flutter/state/dropper.dart';
 import 'package:lumit_flutter/state/viewer_views.dart';
 import 'package:lumit_flutter/state/keymap.dart';
 import 'package:lumit_flutter/state/animated_mask_paths.dart';
+import 'package:lumit_flutter/state/motion_paths.dart';
 import 'package:lumit_flutter/state/layer_bounds.dart';
 import 'package:lumit_flutter/state/playback_loop.dart';
 import 'package:lumit_flutter/state/preview_progress.dart';
@@ -129,6 +130,11 @@ class LumitUiState extends ChangeNotifier {
   /// the mask still carries. Held against the document and the playhead, so a
   /// hover asks the engine nothing.
   final AnimatedMaskPaths animatedMaskPaths = AnimatedMaskPaths();
+
+  /// The motion path of every outlined layer whose Position is keyed, as the
+  /// engine samples it. Held against the document revision, so a hover asks
+  /// the engine nothing and a still layer is never asked about twice.
+  final MotionPaths motionPaths = MotionPaths();
 
   /// Which tool the toolbar has armed (docs/07 §1.7).
   ///

@@ -1629,43 +1629,6 @@ void main() {
           reason: 'the small solid is wholly inside the sweep');
     });
 
-    testWidgets('an animated position gets no box, so nothing drags it',
-        (tester) async {
-      final p = withLayer();
-      // A position that is a curve has no single point to drag.
-      p.layer.setTransform(
-        prop: BridgeTransformProp.positionX,
-        value: BridgeScalar.keyframed([
-          BridgeKeyframe(
-            time: p.comp.timeOfFrame(frame: 0),
-            value: 0,
-            interpIn: const BridgeSideInterp.linear(),
-            interpOut: const BridgeSideInterp.linear(),
-          ),
-          BridgeKeyframe(
-            time: p.comp.timeOfFrame(frame: 30),
-            value: 400,
-            interpIn: const BridgeSideInterp.linear(),
-            interpOut: const BridgeSideInterp.linear(),
-          ),
-        ]),
-      );
-      p.uiState.model.refresh();
-      await mount(tester, p);
-
-      final stage = find.byType(ViewerPanelFrb);
-      final gesture = await tester.startGesture(tester.getCenter(stage));
-      await tester.pump();
-      await gesture.moveBy(const Offset(40, 0));
-      await tester.pump();
-      await gesture.up();
-      await tester.pumpAndSettle();
-
-      final after = p.layer.getTransform();
-      expect(after.positionX, isA<BridgeScalar_Keyframed>(),
-          reason: 'a curve is not overwritten by a drag it never accepted');
-    });
-
     /// Where the picture is drawn inside the panel, worked out the way the
     /// panel works it out: the stage is the panel less its bar, and the comp is
     /// fitted into it. The gizmo's handles sit on this rectangle for a
@@ -1704,6 +1667,89 @@ void main() {
       }
       return null;
     }
+
+    /// **A keyed position draws its motion path, and its keys drag there**
+    /// (docs/07 §2.4). The body of such a layer still does not drag — a curve
+    /// has no single value for a drag to add to — but its box is drawn at the
+    /// playhead's value, so it can be picked, and a press on a key's box on
+    /// the path moves that key: one op, one undo step.
+    testWidgets('a keyed position draws its path, and a key drags as one step',
+        (tester) async {
+      final p = withLayer();
+      p.layer.setTransform(
+        prop: BridgeTransformProp.positionX,
+        value: BridgeScalar.keyframed([
+          BridgeKeyframe(
+            time: p.comp.timeOfFrame(frame: 0),
+            value: 0,
+            interpIn: const BridgeSideInterp.linear(),
+            interpOut: const BridgeSideInterp.linear(),
+          ),
+          BridgeKeyframe(
+            time: p.comp.timeOfFrame(frame: 30),
+            value: 400,
+            interpIn: const BridgeSideInterp.linear(),
+            interpOut: const BridgeSideInterp.linear(),
+          ),
+        ]),
+      );
+      p.uiState.model.refresh();
+      await mount(tester, p);
+      await tester.pumpAndSettle();
+
+      // The path is on the picture: the selected layer's box carries it.
+      final painter = tester
+          .widget<CustomPaint>(find.byKey(const ValueKey('viewer-gizmo')))
+          .painter as dynamic;
+      final drawn = painter.motionPaths as List<LayerBox>;
+      expect(drawn.where((b) => b.motionPath != null), hasLength(1),
+          reason: 'a keyed position draws its motion path');
+      expect(drawn.single.motionPath!.keys, hasLength(2));
+
+      // A body drag still leaves the curve alone.
+      final stage = find.byType(ViewerPanelFrb);
+      var gesture = await tester.startGesture(tester.getCenter(stage));
+      await tester.pump();
+      await gesture.moveBy(const Offset(40, 0));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+      final held = p.layer.getTransform().positionX as BridgeScalar_Keyframed;
+      expect(held.field0.map((k) => k.value), [0, 400],
+          reason: 'a curve is not overwritten by a drag it never accepted');
+
+      // Dragging the last key's box moves that key. It sits at (400, y) in
+      // comp pixels, on the picture's own placement.
+      final fitted = fittedRect(tester, p.comp);
+      final scale = fitted.width / p.comp.getSize().width;
+      final y = (p.layer.getTransform().positionY as BridgeScalar_Static).field0;
+      final dot = fitted.topLeft + Offset(400 * scale, y * scale);
+      // One long first move, as the body drag above makes: a touch pan is
+      // recognised at twice the touch slop, and a slower start hands the
+      // arena to a neighbour before the gizmo's pan can claim it.
+      gesture = await tester.startGesture(dot);
+      await tester.pump();
+      await gesture.moveBy(const Offset(40, 0));
+      await tester.pump();
+      for (var i = 0; i < 2; i++) {
+        await gesture.moveBy(const Offset(10, 0));
+        await tester.pump();
+      }
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      final moved = p.layer.getTransform().positionX as BridgeScalar_Keyframed;
+      expect(moved.field0[1].value, closeTo(400 + 60 / scale, 0.5),
+          reason: 'the key followed the pointer at the picture\'s scale');
+      expect(moved.field0[0].value, 0, reason: 'the other key stayed');
+      expect(p.layer.getTransform().positionY, isA<BridgeScalar_Static>(),
+          reason: 'an axis with no key there is not written');
+
+      p.state.project!.undo();
+      final undone = p.layer.getTransform().positionX as BridgeScalar_Keyframed;
+      expect(undone.field0[1].value, 400,
+          reason: 'one undo puts the whole drag back');
+    });
 
     /// **A layer switched off is not on the picture at all.** Its eye
     /// being off is how you get it out of the way; a box round something
