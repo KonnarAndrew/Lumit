@@ -57,7 +57,8 @@ impl Fingerprint {
 pub struct MediaRef {
     /// Path relative to the project file's directory — the one path a saved
     /// project carries (docs/10 §2). Rebased against the project's
-    /// location on every save.
+    /// location on every save. Media on another drive keeps its whole path
+    /// here, as there is nothing to be relative to.
     pub relative_path: String,
     /// The file's location on THIS machine, this session. Never serialized: an
     /// absolute path embeds the local username — the exact thing docs/10 §2
