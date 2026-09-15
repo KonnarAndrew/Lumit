@@ -650,6 +650,32 @@ void main() {
       expect(find.text('Radius'), findsOneWidget);
     });
 
+    /// Folds are kept with the project, so a panel closed and opened again
+    /// finds its effects and groups as it left them.
+    testWidgets('effect and group folds outlive the panel', (tester) async {
+      final p = withLayer();
+      p.layer.addEffect(name: 'lens_flare');
+      p.uiState.model.refresh();
+      await mount(tester, p, transform: false);
+
+      await tester.tap(heading('Lens options'));
+      await tester.pump();
+      expect(find.text('Blades'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await mount(tester, p, transform: false);
+      expect(find.text('Blades'), findsOneWidget,
+          reason: 'the group came back open');
+
+      final id = p.layer.getEffects().single.id();
+      await tester.tap(find.byKey(ValueKey<String>('fx-twirl-$id')));
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox());
+      await mount(tester, p, transform: false);
+      expect(heading('Lens options'), findsNothing,
+          reason: 'the effect came back shut');
+    });
+
     testWidgets('Reset puts every parameter back and drops its keyframes',
         (tester) async {
       final p = withLayer();

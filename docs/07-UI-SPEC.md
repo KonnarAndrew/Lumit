@@ -1588,7 +1588,8 @@ the one sanctioned way a group reaches the picture.
   every member is on, and one press sets them all as a single undo step. The remaining
   columns are blank — a band has no blend mode, matte or parent.
 - **Folding** hides the members behind the header, exactly as the shy filter hides a row.
-  The fold is session state, like a layer's twirl; it is not saved with the composition.
+  The fold is view state, like a layer's twirl and an effect's. It comes back when the
+  project is reopened, but it is never an op and never part of the composition.
 - The **combined bar** spans the earliest member's in point to the latest one's out, in the
   group's own colour. Dragging it moves every member together as one undo step. It MUST NOT
   be trimmable.

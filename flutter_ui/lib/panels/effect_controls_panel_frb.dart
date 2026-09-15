@@ -94,7 +94,8 @@ class _EffectControlsPanelFrbState extends State<EffectControlsPanelFrb> {
   /// Which sections are twirled shut, by their path. Held closed-set rather than
   /// open-set so a newly applied effect arrives open, which is what you want the
   /// moment after applying one.
-  final Set<String> _shut = <String>{};
+  late final Set<String> _shut =
+      Provider.of<LumitUiState>(context, listen: false).folds.effectsShut;
 
   /// The last layer this panel drew. Deselecting does not empty the panel: the
   /// stack you were just editing stays up, because clicking away in the
@@ -519,7 +520,8 @@ class _EffectControlsPanelFrbState extends State<EffectControlsPanelFrb> {
   /// "absent" cannot mean open here the way it does for a section. Absent means
   /// "whatever the schema said", and the entry appears the first time the owner
   /// disagrees.
-  final Map<String, bool> _groupOpen = <String, bool>{};
+  late final Map<String, bool> _groupOpen =
+      Provider.of<LumitUiState>(context, listen: false).folds.paramGroupsOpen;
 
   bool _isGroupOpen(String path, bool collapsedByDefault) =>
       _groupOpen[path] ?? !collapsedByDefault;
@@ -2151,10 +2153,12 @@ class _EffectSection extends StatelessWidget {
         if (group.label.isEmpty) {
           rows.addAll(foldRows(run));
         } else {
+          final path = 'fx-group-$id-${group.label}';
           rows.add(_ParamGroupSection(
-            key: ValueKey<String>('fx-group-$id-${group.label}'),
+            key: ValueKey<String>(path),
             label: group.label,
-            collapsed: group.collapsed,
+            open: isGroupOpen(path, group.collapsed),
+            onToggle: () => onToggleGroup(path, group.collapsed),
             rows: foldRows(run),
           ));
         }
@@ -2346,26 +2350,20 @@ class _EffectSection extends StatelessWidget {
 }
 
 /// One collapsible parameter group inside an effect's card (docs/08 §1.2):
-/// a small twirl header, its member rows indented under it. Open
-/// state is session-local (a fresh panel starts groups at their declared
-/// `collapsed`).
-class _ParamGroupSection extends StatefulWidget {
+/// a small twirl header, its member rows indented under it. Whether it is
+/// open is the panel's, so it survives the card being rebuilt.
+class _ParamGroupSection extends StatelessWidget {
   final String label;
-  final bool collapsed;
+  final bool open;
+  final VoidCallback onToggle;
   final List<Widget> rows;
   const _ParamGroupSection({
     super.key,
     required this.label,
-    required this.collapsed,
+    required this.open,
+    required this.onToggle,
     required this.rows,
   });
-
-  @override
-  State<_ParamGroupSection> createState() => _ParamGroupSectionState();
-}
-
-class _ParamGroupSectionState extends State<_ParamGroupSection> {
-  late bool _open = !widget.collapsed;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -2377,14 +2375,14 @@ class _ParamGroupSectionState extends State<_ParamGroupSection> {
           // whole panel, and a fold says what it is with its kicker.
           fxGroupHeaderRow(
             context,
-            label: widget.label,
-            open: _open,
-            onToggle: () => setState(() => _open = !_open),
+            label: label,
+            open: open,
+            onToggle: onToggle,
           ),
-          if (_open)
+          if (open)
             Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: widget.rows,
+              children: rows,
             ),
         ],
       );

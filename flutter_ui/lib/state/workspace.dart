@@ -140,6 +140,10 @@ class SavedSession {
   /// same thing, and workspace state, because it is the panel arrangement.
   final Map<String, dynamic>? viewerLayout;
 
+  /// What is twirled open or shut in the Timeline and Effect Controls, as
+  /// [PanelFolds.toJson]. Raw JSON for [dock]'s reason.
+  final Map<String, dynamic>? folds;
+
   const SavedSession({
     this.openComps = const [],
     this.activeComp,
@@ -154,6 +158,7 @@ class SavedSession {
     this.compViews = const {},
     this.viewerViews = const [],
     this.viewerLayout,
+    this.folds,
   });
 
   Map<String, dynamic> toJson() => {
@@ -164,6 +169,7 @@ class SavedSession {
         'dock': dock,
         'viewer_views': viewerViews,
         'viewer_layout': viewerLayout,
+        'folds': folds,
         'viewer_looks': {
           for (final e in viewerLooks.entries)
             e.key: {'stops': e.value.stops, 'tone_map': e.value.toneMap},
@@ -251,12 +257,16 @@ class SavedSession {
         viewerLayout: j['viewer_layout'] is Map
             ? (j['viewer_layout'] as Map).cast<String, dynamic>()
             : null,
+        folds: j['folds'] is Map
+            ? (j['folds'] as Map).cast<String, dynamic>()
+            : null,
       );
 
   /// The arrangement compared by value. Encoding is the cheap deep compare
   /// here: both sides are built key-by-key in the same order by [toJson], so
   /// equal trees encode identically.
   String get _dockKey => dock == null ? '' : jsonEncode(dock);
+  String get _foldsKey => folds == null ? '' : jsonEncode(folds);
 
   @override
   bool operator ==(Object other) =>
@@ -265,6 +275,7 @@ class SavedSession {
       other.frame == frame &&
       other.selectedLayer == selectedLayer &&
       other._dockKey == _dockKey &&
+      other._foldsKey == _foldsKey &&
       mapEquals(other.viewerLooks, viewerLooks) &&
       mapEquals(other.previewResolutions, previewResolutions) &&
       mapEquals(other.viewerOverlays, viewerOverlays) &&
@@ -279,6 +290,7 @@ class SavedSession {
         frame,
         selectedLayer,
         _dockKey,
+        _foldsKey,
         Object.hashAll(openComps),
         Object.hashAll([
           for (final e in viewerLooks.entries) Object.hash(e.key, e.value),
