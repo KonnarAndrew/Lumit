@@ -148,6 +148,40 @@ void main() {
     expect(view?.scroll, 0.5);
   });
 
+  /// What was twirled open or shut in the Timeline and Effect Controls comes
+  /// back with the project, and does not leak into the next one.
+  testWidgets('folds come back with the project', (tester) async {
+    final dir = Directory.systemTemp.createTempSync('lumit-folds');
+    final path = '${dir.path}/folds.lum';
+    final workspace = Workspace();
+
+    final state = LumitState()..newProject();
+    final ui = LumitUiState(state, workspace: workspace);
+    final project = state.project!;
+    project.newComposition(name: 'Scene');
+
+    var saved = false;
+    project.save(path: path).then((_) => saved = true);
+    await settleFrb(tester, until: () => saved);
+
+    ui.folds.timelineOpen.addAll(['layer', 'layer/transform']);
+    ui.folds.effectsShut.add('fx-blur');
+    ui.folds.paramGroupsOpen['fx-group-flare-Lens options'] = true;
+    ui.rememberSession();
+
+    final adopted = state.project;
+    state.newProject();
+    expect(ui.folds.timelineOpen, isEmpty,
+        reason: 'a new project starts with nothing twirled');
+    state.comps();
+    state.openProject(path);
+    await settleFrb(tester, until: () => !identical(state.project, adopted));
+
+    expect(ui.folds.timelineOpen, {'layer', 'layer/transform'});
+    expect(ui.folds.effectsShut, {'fx-blur'});
+    expect(ui.folds.paramGroupsOpen, {'fx-group-flare-Lens options': true});
+  });
+
   /// Opening a **Precomp layer** is the exception: it enters the nested comp
   /// at the moment that layer is showing, which the engine maps through the
   /// layer's start offset and Retime.

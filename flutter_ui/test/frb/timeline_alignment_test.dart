@@ -1581,6 +1581,42 @@ void main() {
       levelWherever('after scrolling again');
     });
 
+    /// 12. **Coming back from the graph keeps the scroll.** The lanes are
+    /// rebuilt on the way back, and they used to come back at the top.
+    testWidgets('a trip to the graph and back keeps the rows where they were',
+        (tester) async {
+      final p = withComp();
+      final layers = [
+        for (var i = 0; i < 20; i++) p.comp.addSolidLayer(),
+      ];
+      p.uiState.model.refresh();
+      await mount(tester, p, height: 300);
+
+      final laneAt = laneBar(tester, layers.last).center;
+      for (var i = 0; i < 3; i++) {
+        await wheel(tester, laneAt, 120);
+      }
+      final probe = layers.firstWhere((l) =>
+          find
+              .byKey(ValueKey<String>('tl-row-${idOf(l)}'))
+              .evaluate()
+              .isNotEmpty &&
+          outlineRow(tester, l).top > 100);
+      final row = find.byKey(ValueKey<String>('tl-row-${idOf(probe)}'));
+      final before = tester.getRect(row).top;
+
+      await tester.tap(find.byKey(const ValueKey('tl-graph')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('tl-view-lanes')));
+      await tester.pumpAndSettle();
+
+      expect(tester.getRect(row).top, closeTo(before, 0.5),
+          reason: 'the outline stays where it was left');
+      final bar = find.byKey(ValueKey<String>('tl-bar-${idOf(probe)}'));
+      expect(tester.getRect(bar).top, closeTo(before, 0.5),
+          reason: 'and the lanes come back level with it');
+    });
+
     /// The same table under each shape: every chrome row at the shape's own
     /// density, the cache bar on the ruler's floor at its own height, and a
     /// marker standing on it. The Studio claims above stay literal; this

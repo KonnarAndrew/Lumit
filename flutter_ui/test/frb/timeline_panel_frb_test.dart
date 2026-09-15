@@ -489,6 +489,25 @@ void main() {
       expect(find.byType(GraphEditorFrb), findsNothing);
     });
 
+    /// Twirls are kept with the project, so a panel closed and opened again
+    /// finds its layers as it left them.
+    testWidgets('a twirl outlives the panel', (tester) async {
+      final p = withComp();
+      final layer = p.comp.addSolidLayer();
+      p.uiState.model.refresh();
+      await mount(tester, p);
+
+      await tester.tap(
+          find.byKey(ValueKey<String>('tl-twirl-${layer.internallayerId}')));
+      await tester.pumpAndSettle();
+      expect(find.text('Transform'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await mount(tester, p);
+      expect(find.text('Transform'), findsOneWidget,
+          reason: 'the layer came back twirled open');
+    });
+
     testWidgets('the razor is the toolbar tool, and undoes as one step',
         (tester) async {
       final p = withComp();

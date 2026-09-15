@@ -52,6 +52,7 @@ import '../shell/precompose_dialog_frb.dart' show showPrecomposeDialogFrb;
 import '../state/comp_model.dart';
 import '../state/dock.dart';
 import '../state/drag_payloads.dart';
+import '../state/panel_folds.dart';
 import '../state/settings.dart';
 import '../state/timeline_columns.dart';
 import '../state/tools.dart';
@@ -123,20 +124,25 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
   /// the panel rather than by each row so the lane side can leave room for
   /// exactly the rows the outline draws — the two halves are one table, and a
   /// name that does not line up with its bar is worse than no fold-out at all.
-  final Set<String> _open = {};
+  late final Set<String> _open = _folds.timelineOpen;
 
   /// Which **layer groups** are folded shut, by group id. Session
   /// state, held beside [_open] and for the same reason: a fold changes how
   /// many rows the table has, and the outline and the lanes have to leave room
   /// for exactly the same ones. Not document state — whether a band is twirled
   /// open is no more part of the composition than whether a layer is.
-  final Set<String> _foldedGroups = {};
+  late final Set<String> _foldedGroups = _folds.foldedGroups;
 
   /// Which group headers have their **effect lanes** twirled open, by
   /// group id — the fx tick's own fold, session state like the two above.
   /// The per-effect twirls under it live in [_open] under the header's
   /// group-prefixed paths, so the ordinary toggle road serves them unchanged.
-  final Set<String> _openGroupFx = {};
+  late final Set<String> _openGroupFx = _folds.groupFxOpen;
+
+  /// The project's folds, which the three sets above are part of, so they
+  /// outlive the panel and are saved with the project's view.
+  PanelFolds get _folds =>
+      Provider.of<LumitUiState>(context, listen: false).folds;
 
   /// Whether [id]'s twirl is down.
   ///
@@ -1385,6 +1391,13 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
     if (mode == _mode) return;
     setState(() => _mode = mode);
     _publishEasingClaim();
+    // The lanes come back from the graph built fresh at the top, so put them
+    // level with the outline, which kept its place.
+    if (mode == TimelineMode.layers) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _followScroll(_vOutline, _vLane);
+      });
+    }
   }
 
   /// Whether the razor is armed — which is now the *toolbar's* answer:

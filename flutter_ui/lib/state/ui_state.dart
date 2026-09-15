@@ -48,6 +48,7 @@ import 'package:lumit_flutter/state/keymap.dart';
 import 'package:lumit_flutter/state/animated_mask_paths.dart';
 import 'package:lumit_flutter/state/motion_paths.dart';
 import 'package:lumit_flutter/state/layer_bounds.dart';
+import 'package:lumit_flutter/state/panel_folds.dart';
 import 'package:lumit_flutter/state/playback_loop.dart';
 import 'package:lumit_flutter/state/preview_progress.dart';
 import 'package:lumit_flutter/state/render_timings.dart';
@@ -2104,6 +2105,10 @@ class LumitUiState extends ChangeNotifier {
   /// [rememberCompView].
   final Map<String, CompView> compViews = {};
 
+  /// What is twirled open or shut in the Timeline and Effect Controls. Saved
+  /// like [compViews], so a project reopens folded as it was.
+  final PanelFolds folds = PanelFolds();
+
   /// Write down part of where the user is in a comp. Fields left null keep
   /// whatever was already recorded, so neither owner can wipe the other's half.
   void rememberCompView(String id, {int? frame, double? zoom, double? scroll}) {
@@ -2777,7 +2782,8 @@ class LumitUiState extends ChangeNotifier {
         viewerOverlays: Map.of(viewerOverlaysByComp),
         guides: {
           for (final e in guidesByComp.entries) e.key: List.of(e.value),
-        });
+        },
+        folds: folds.toJson());
   }
 
   /// The same thing as JSON, for the copy that goes inside the `.lum` so it
@@ -2863,6 +2869,7 @@ class LumitUiState extends ChangeNotifier {
       // After the unfronting, not before it: letting go of a comp writes down
       // where it was, and that note belongs to the project just closed.
       compViews.clear();
+      folds.clear();
 
       final path = project?.path();
       if (path == null) return;
@@ -2915,6 +2922,7 @@ class LumitUiState extends ChangeNotifier {
       compViews.addEntries(
         session.compViews.entries.where((e) => known.containsKey(e.key)),
       );
+      folds.restore(session.folds);
       // The views, both halves: what each shows and its lock out of the
       // project, the layout out of the workspace. Before the comps are
       // fronted, because fronting one puts it into a view.
