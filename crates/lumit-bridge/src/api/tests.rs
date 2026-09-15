@@ -15383,6 +15383,107 @@ fn the_graph_console_offers_time_offset_and_never_layer_points() {
     );
 }
 
+/// **A motion path is the engine's own curve** (docs/07 §2.4): sampled once
+/// per comp frame across the keyed range, landing exactly on its keys, with a
+/// handle only where a side is eased. A still Position has no path at all.
+#[test]
+fn a_motion_path_is_sampled_by_the_engine_and_lands_on_its_keys() {
+    use crate::api::effect::{
+        BridgeBezierSide, BridgeKeyframe, BridgeRational, BridgeScalar, BridgeSideInterp,
+    };
+    use crate::api::layer::BridgeTransformProp;
+
+    let (_project, layer) = project_with_layer();
+    assert!(
+        layer.motion_path().expect("answers").is_none(),
+        "a still position draws no path"
+    );
+
+    let key = |frame: i64, value: f64, out: BridgeSideInterp| BridgeKeyframe {
+        time: BridgeRational {
+            num: frame,
+            den: 30,
+        },
+        value,
+        interp_in: BridgeSideInterp::Linear,
+        interp_out: out,
+    };
+    let eased = BridgeSideInterp::Bezier(BridgeBezierSide {
+        speed: 0.0,
+        influence: 1.0 / 3.0,
+    });
+    layer
+        .set_transforms(
+            vec![
+                BridgeTransformProp::PositionX,
+                BridgeTransformProp::PositionY,
+            ],
+            vec![
+                BridgeScalar::Keyframed(vec![
+                    key(0, 100.0, eased),
+                    key(30, 400.0, BridgeSideInterp::Linear),
+                ]),
+                BridgeScalar::Keyframed(vec![
+                    key(0, 200.0, BridgeSideInterp::Linear),
+                    key(30, 500.0, BridgeSideInterp::Linear),
+                ]),
+            ],
+        )
+        .expect("keyed");
+
+    let path = layer
+        .motion_path()
+        .expect("answers")
+        .expect("a keyed position has a path");
+    assert_eq!(path.first_frame, 0);
+    assert_eq!(
+        path.samples.len(),
+        31 * 2,
+        "one sample per frame from the first key to the last"
+    );
+
+    // The samples are lumit-core's own evaluation at each frame.
+    let stored = layer.item().expect("the layer");
+    for (i, xy) in path.samples.chunks(2).enumerate() {
+        let t = i as f64 / 30.0;
+        assert!(
+            (xy[0] - stored.transform.position_x.value_at(t)).abs() < 1e-9,
+            "x at frame {i}"
+        );
+        assert!(
+            (xy[1] - stored.transform.position_y.value_at(t)).abs() < 1e-9,
+            "y at frame {i}"
+        );
+    }
+    // x leaves its first key eased, so a third of the way along it is nowhere
+    // near the straight line's third.
+    assert!(
+        (path.samples[20] - 200.0).abs() > 1.0,
+        "the eased x is not a straight line"
+    );
+
+    assert_eq!(path.keys.len(), 2);
+    let (first, last) = (&path.keys[0], &path.keys[1]);
+    assert_eq!((first.frame, first.x, first.y), (0, 100.0, 200.0));
+    assert_eq!((last.frame, last.x, last.y), (30, 400.0, 500.0));
+    assert_eq!((first.x_index, first.y_index), (Some(0), Some(0)));
+    assert!(
+        first.handle_in.is_none(),
+        "an end key has no span to lean into"
+    );
+    // x is eased flat, y is straight: the handle sits on the key's own x and
+    // a third of the way along y's chord.
+    let out = first.handle_out.expect("an eased side draws a handle");
+    assert!(
+        (out[0] - 100.0).abs() < 1e-9 && (out[1] - 300.0).abs() < 1e-9,
+        "handle {out:?}"
+    );
+    assert!(
+        last.handle_in.is_none(),
+        "straight on both axes draws no handle"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // The Addons page's four engine answers (docs/impl/addons.md §5).
 // ---------------------------------------------------------------------------

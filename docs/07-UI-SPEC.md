@@ -844,9 +844,12 @@ opening a second viewport. Clicking it again goes back.
 selection, the marquee, body-drag move (of a whole multiple selection), the eight scale
 handles with `Shift` for uniform, the rotation bar with `Shift` snapping to 45°, and the
 bar's switch. Not built: the anchor-point centre handle, snapping of any kind, parent-aware
-and 3D gizmos, scale and rotation of a *multiple* selection about a shared box (a multiple
-selection moves, and shows a box per layer), and motion paths (§2.4). A layer whose position
-is keyframed draws no box: there is no single value for a drag to add to. **Masks can be
+and 3D gizmos, and scale and rotation of a *multiple* selection about a shared box (a multiple
+selection moves, and shows a box per layer). A keyed transform channel is read **at the
+playhead** for the box, through the batched sampler the Timeline's rows use, so an animated
+layer's box sits where the picture has it and can be picked there; a keyed position's body
+does not drag (there is no single value for a drag to add to) — its keys are dragged on the
+motion path instead (§2.4). **Masks can be
 drawn, listed, selected, renamed, inverted, faded, deleted (by menu or `Delete`), and their points
 selected and moved**, and **a shape layer's own art is drawn and edited by the
 same gesture** — the two hold the same path type, so a point of either is aimed at,
@@ -1097,6 +1100,19 @@ subject out of a shot, one scribble at a time
 Position animation MUST draw its motion path in the Viewer for selected layers: keyframe
 boxes, spatial bezier handles (editable in place), and per-frame dots so dot spacing shows
 speed. Path editing writes to the same keyframe data as the graph editor.
+
+**Built (2026-09-14).** The path is the engine's own curve, sampled once per comp frame
+across the keyed range (`motion_path`, [17-BRIDGE-CONTRACT.md](17-BRIDGE-CONTRACT.md)),
+drawn for the outlined layers under the layer-controls switch: the line, a dot per frame, a
+box per key, and each key's handles as a line to a hollow circle. Dragging a key's box moves
+that key through `set_transforms` — one op, one undo step — previewing the frame on screen
+as the drag goes. Two things narrow the paragraph above. Position is two scalar curves, x
+and y ([03-DATA-MODEL.md](03-DATA-MODEL.md) §6.5), so a "key" on the path is a time at which
+either axis has a key, a drag writes only the axes keyed there, and the handles are the
+axes' temporal eases projected onto the picture (a straight side is a third of the chord, a
+held side draws none); they are **not draggable**, because there is no spatial tangent for a
+handle drag to write. And the path itself catches up on release, when the document's change
+refreshes it; only the key in hand follows the pointer.
 
 ### 2.5 Playback surface
 

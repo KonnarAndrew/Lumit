@@ -225,11 +225,41 @@ void main() {
       expect(comp.getLayers(), hasLength(1));
 
       p.uiState.selectedLayer.value = comp.getLayers().single;
+      p.uiState.activePane.value = Panel.timeline.pane();
       await tester.sendKeyEvent(LogicalKeyboardKey.delete);
       await tester.pump();
       expect(comp.getLayers(), isEmpty);
       expect(p.uiState.selectedLayer.value, isNull,
           reason: 'the selection cannot outlive the layer');
+    });
+
+    /// Delete in Effect controls never reaches the layer, picked or not.
+    testWidgets('Delete in Effect controls leaves the layer', (tester) async {
+      final p = await mount(tester);
+      final comp = p.uiState.selectedComp!;
+      final layer = comp.addSolidLayer();
+      layer.addEffect(name: 'blur');
+      layer.addEffect(name: 'invert');
+      p.uiState.selectedLayer.value = comp.getLayers().single;
+      p.uiState.activePane.value = Panel.effectControls.pane();
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+      await tester.pump();
+      expect(comp.getLayers(), hasLength(1),
+          reason: 'nothing picked is not a reason to delete the layer');
+
+      final stack = comp.getLayers().single.getEffects();
+      p.uiState.setEffectSelection(comp.getLayers().single, [stack[0].id()]);
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+      await tester.pump();
+      expect(comp.getLayers(), hasLength(1), reason: 'the layer stayed');
+      expect([
+        for (final e in comp.getLayers().single.getEffects()) e.name()
+      ], [
+        stack[1].name()
+      ], reason: 'and the picked effect went');
     });
 
     /// **A finer selection gets Delete first.** A selected mask row is
@@ -241,6 +271,7 @@ void main() {
       final comp = p.uiState.selectedComp!;
       comp.addSolidLayer();
       p.uiState.selectedLayer.value = comp.getLayers().single;
+      p.uiState.activePane.value = Panel.timeline.pane();
 
       var claimed = 0;
       p.uiState.deleteClaim = () {

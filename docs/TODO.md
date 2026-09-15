@@ -304,9 +304,10 @@ a matter of holding a `SmoothZoom` and reading its value, with no design left in
 it.
 
 **Layer controls in the Viewer ([07-UI-SPEC.md](07-UI-SPEC.md) §2.3):**
-- **Motion paths** (§2.4) - a keyed position draws no path and its keys cannot be
-    dragged there. There is no motion-path code in `flutter_ui/lib` at all; the
-    multi-viewer work moved none of it, because there was none to move.
+- **Motion-path handles** (§2.4) - drawn from the keys' eases, not draggable: the
+    model keys x and y as two scalar curves and carries no spatial tangent
+    ([03-DATA-MODEL.md](03-DATA-MODEL.md) §6.5), so dragging one is a data-model
+    decision before it is a gesture. The path also catches up only on release.
 - **Scale and rotation of a multiple selection** - each layer keeps its own box
     and only a lone selection grows handles; AE scales a set about one shared box.
 - **Snapping reaches for guides and the grid, and nothing else** (§2.2 item 6).
@@ -319,12 +320,6 @@ it.
     is a 2D map, so a 3D layer's ignores the camera. The 3D views' wireframes are
     a separate thing the engine gathers (`CompositionReference::wireframes`) and
     sit under an `IgnorePointer`: drawn, never aimed at.
-- **A keyframed position draws no box**, so an animated layer cannot be picked on
-    the picture — `viewer_stage.dart` leaves out any layer whose position is not
-    a still value, on the ground that a box in the wrong place is worse than
-    none. It wants the value *at the playhead*, which the read model does not
-    carry: a `BridgeScalar` is static, keyframed or an expression, and never the
-    number a frame was drawn with.
 
 **Pixel pickers ([07-UI-SPEC.md](07-UI-SPEC.md) §6.1):**
 - The on-Viewer crosshair handle for point parameters - a point parameter can be

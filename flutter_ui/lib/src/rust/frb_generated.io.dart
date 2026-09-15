@@ -227,6 +227,9 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
   BridgeMediaInfo dco_decode_box_autoadd_bridge_media_info(dynamic raw);
 
   @protected
+  BridgeMotionPath dco_decode_box_autoadd_bridge_motion_path(dynamic raw);
+
+  @protected
   BridgeNodeRef dco_decode_box_autoadd_bridge_node_ref(dynamic raw);
 
   @protected
@@ -670,6 +673,12 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
   BridgeMetadataField dco_decode_bridge_metadata_field(dynamic raw);
 
   @protected
+  BridgeMotionKey dco_decode_bridge_motion_key(dynamic raw);
+
+  @protected
+  BridgeMotionPath dco_decode_bridge_motion_path(dynamic raw);
+
+  @protected
   BridgeNodeGroup dco_decode_bridge_node_group(dynamic raw);
 
   @protected
@@ -960,6 +969,9 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
   double dco_decode_f_64(dynamic raw);
 
   @protected
+  F64Array2 dco_decode_f_64_array_2(dynamic raw);
+
+  @protected
   F64Array4 dco_decode_f_64_array_4(dynamic raw);
 
   @protected
@@ -1109,6 +1121,9 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
 
   @protected
   List<BridgeMetadataField> dco_decode_list_bridge_metadata_field(dynamic raw);
+
+  @protected
+  List<BridgeMotionKey> dco_decode_list_bridge_motion_key(dynamic raw);
 
   @protected
   List<BridgeNodeGroup> dco_decode_list_bridge_node_group(dynamic raw);
@@ -1326,6 +1341,9 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
   BridgeMediaInfo? dco_decode_opt_box_autoadd_bridge_media_info(dynamic raw);
 
   @protected
+  BridgeMotionPath? dco_decode_opt_box_autoadd_bridge_motion_path(dynamic raw);
+
+  @protected
   BridgePlaneFailure? dco_decode_opt_box_autoadd_bridge_plane_failure(
       dynamic raw);
 
@@ -1402,6 +1420,9 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
 
   @protected
   BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
+
+  @protected
+  F64Array2? dco_decode_opt_f_64_array_2(dynamic raw);
 
   @protected
   List<String>? dco_decode_opt_list_String(dynamic raw);
@@ -1615,6 +1636,10 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
 
   @protected
   BridgeMediaInfo sse_decode_box_autoadd_bridge_media_info(
+      SseDeserializer deserializer);
+
+  @protected
+  BridgeMotionPath sse_decode_box_autoadd_bridge_motion_path(
       SseDeserializer deserializer);
 
   @protected
@@ -2135,6 +2160,12 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  BridgeMotionKey sse_decode_bridge_motion_key(SseDeserializer deserializer);
+
+  @protected
+  BridgeMotionPath sse_decode_bridge_motion_path(SseDeserializer deserializer);
+
+  @protected
   BridgeNodeGroup sse_decode_bridge_node_group(SseDeserializer deserializer);
 
   @protected
@@ -2465,6 +2496,9 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
   double sse_decode_f_64(SseDeserializer deserializer);
 
   @protected
+  F64Array2 sse_decode_f_64_array_2(SseDeserializer deserializer);
+
+  @protected
   F64Array4 sse_decode_f_64_array_4(SseDeserializer deserializer);
 
   @protected
@@ -2643,6 +2677,10 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
 
   @protected
   List<BridgeMetadataField> sse_decode_list_bridge_metadata_field(
+      SseDeserializer deserializer);
+
+  @protected
+  List<BridgeMotionKey> sse_decode_list_bridge_motion_key(
       SseDeserializer deserializer);
 
   @protected
@@ -2905,6 +2943,10 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  BridgeMotionPath? sse_decode_opt_box_autoadd_bridge_motion_path(
+      SseDeserializer deserializer);
+
+  @protected
   BridgePlaneFailure? sse_decode_opt_box_autoadd_bridge_plane_failure(
       SseDeserializer deserializer);
 
@@ -2992,6 +3034,9 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
 
   @protected
   BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
+
+  @protected
+  F64Array2? sse_decode_opt_f_64_array_2(SseDeserializer deserializer);
 
   @protected
   List<String>? sse_decode_opt_list_String(SseDeserializer deserializer);
@@ -3210,6 +3255,10 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
   @protected
   void sse_encode_box_autoadd_bridge_media_info(
       BridgeMediaInfo self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_bridge_motion_path(
+      BridgeMotionPath self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_bridge_node_ref(
@@ -3785,6 +3834,14 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
       BridgeMetadataField self, SseSerializer serializer);
 
   @protected
+  void sse_encode_bridge_motion_key(
+      BridgeMotionKey self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_bridge_motion_path(
+      BridgeMotionPath self, SseSerializer serializer);
+
+  @protected
   void sse_encode_bridge_node_group(
       BridgeNodeGroup self, SseSerializer serializer);
 
@@ -4155,6 +4212,9 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
   void sse_encode_f_64(double self, SseSerializer serializer);
 
   @protected
+  void sse_encode_f_64_array_2(F64Array2 self, SseSerializer serializer);
+
+  @protected
   void sse_encode_f_64_array_4(F64Array4 self, SseSerializer serializer);
 
   @protected
@@ -4340,6 +4400,10 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
   @protected
   void sse_encode_list_bridge_metadata_field(
       List<BridgeMetadataField> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_bridge_motion_key(
+      List<BridgeMotionKey> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_bridge_node_group(
@@ -4610,6 +4674,10 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
       BridgeMediaInfo? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_bridge_motion_path(
+      BridgeMotionPath? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_bridge_plane_failure(
       BridgePlaneFailure? self, SseSerializer serializer);
 
@@ -4697,6 +4765,9 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
 
   @protected
   void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_f_64_array_2(F64Array2? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_list_String(List<String>? self, SseSerializer serializer);

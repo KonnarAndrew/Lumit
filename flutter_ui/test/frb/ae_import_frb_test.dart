@@ -19,6 +19,9 @@
 // an offline item with a row saying so, and must never hold the import up
 // (docs/11 §2.5).
 
+@Tags(['opens-project'])
+library;
+
 import 'dart:async';
 import 'dart:io';
 

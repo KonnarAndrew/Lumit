@@ -989,6 +989,7 @@ void main() {
       final p = withLayer();
       animateOpacity(p.comp, p.layer, frames: [0, 20, 40]);
       await mountGraph(tester, p);
+      p.uiState.activePane.value = Panel.timeline.pane();
 
       await tester.tap(find.byKey(ValueKey<String>(opacityKey(p.layer, 1))));
       await tester.pump();

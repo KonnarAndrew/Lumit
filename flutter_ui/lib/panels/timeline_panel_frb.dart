@@ -1807,6 +1807,8 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
     // is kept, not looked up again: `dispose` runs after the element is
     // deactivated, where an ancestor lookup is no longer safe.
     _ui = Provider.of<LumitUiState>(context, listen: false);
+    // Chained, not overwritten: Effect controls may hold the claim already.
+    _priorDeleteClaim = _ui!.deleteClaim;
     _ui!.deleteClaim = _deleteClaim;
     _ui!.copyClaim = _copySelectedKeys;
     _ui!.pasteClaim = _pasteKeysIntoSelection;
@@ -2119,10 +2121,17 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
   /// hardware keyboard instead, which does not claim anything: every handler
   /// runs on every key, so deleting a graph key also let the shell delete the
   /// layer it belonged to.
-  bool _deleteClaim() =>
-      (_graph && _graphKeySelection.isNotEmpty && _deleteGraphKeys()) ||
-      (!_graph && _laneKeySelection.isNotEmpty && _deleteSelectedKeys()) ||
-      _deleteSelectedMasks();
+  bool _deleteClaim() {
+    if (!mounted || _ui?.activePanel != Panel.timeline) {
+      return _priorDeleteClaim?.call() ?? false;
+    }
+    return (_graph && _graphKeySelection.isNotEmpty && _deleteGraphKeys()) ||
+        (!_graph && _laneKeySelection.isNotEmpty && _deleteSelectedKeys()) ||
+        _deleteSelectedMasks();
+  }
+
+  /// The claim this panel chained onto when it mounted.
+  bool Function()? _priorDeleteClaim;
 
   /// Delete the keys picked in the graph pane, if it is there to ask.
   bool _deleteGraphKeys() {
@@ -2953,7 +2962,7 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
     _ui?.revealPropertyRequest.removeListener(_onRevealRequested);
     _ui?.revealFilterRequest.removeListener(_onRevealFilterRequested);
     _ui?.selectPropertyRequest.removeListener(_onSelectPropertyRequested);
-    if (_ui?.deleteClaim == _deleteClaim) _ui!.deleteClaim = null;
+    if (_ui?.deleteClaim == _deleteClaim) _ui!.deleteClaim = _priorDeleteClaim;
     if (_ui?.copyClaim == _copySelectedKeys) _ui!.copyClaim = null;
     if (_ui?.pasteClaim == _pasteKeysIntoSelection) _ui!.pasteClaim = null;
     if (_ui?.easingApply.value == _applyEasing) _ui!.easingApply.value = null;
