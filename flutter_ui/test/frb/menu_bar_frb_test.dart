@@ -360,6 +360,31 @@ void main() {
           reason: 'the effect is bound to the graph that was chosen');
     });
 
+    testWidgets('the layer console applies an effect to the primary layer only',
+        (tester) async {
+      final p = await mount(tester);
+      final comp = p.state.project!.newComposition(name: 'Scene');
+      final a = comp.addSolidLayer();
+      final b = comp.addSolidLayer();
+      p.uiState
+        ..setSelectedComp(comp)
+        ..setSelection([a, b]);
+      await tester.pump();
+
+      p.uiState.requestConsole();
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const ValueKey('fx-console-query')), 'Gaussian blur');
+      await tester.pump();
+      await tester
+          .tap(find.byKey(const ValueKey('fx-console-item-Gaussian blur')));
+      await tester.pumpAndSettle();
+
+      expect(a.getEffects().single.name(), 'blur');
+      expect(b.getEffects(), isEmpty,
+          reason: 'the primary layer alone, not every selected layer');
+    });
+
     testWidgets('Composition settings… is disabled until a comp is fronted',
         (tester) async {
       final p = await mount(tester);
@@ -1153,9 +1178,9 @@ void main() {
     });
 
     /// The Effect menu is the browser as a menu: a submenu per category, each
-    /// effect applying to *every* selected layer, and the whole thing dead with
+    /// effect applying to the primary layer only, and the whole thing dead with
     /// nothing selected.
-    testWidgets('the Effect menu applies to every selected layer',
+    testWidgets('the Effect menu applies to the primary layer only',
         (tester) async {
       final p = await mount(tester);
       await makeComp(tester);
@@ -1174,8 +1199,8 @@ void main() {
       await choose(tester, 'Effect', 'Gaussian blur', under: 'Blur & sharpen');
       await tester.pump();
       expect(a.getEffects().single.name(), 'blur');
-      expect(b.getEffects().single.name(), 'blur',
-          reason: 'every selected layer, not just the primary');
+      expect(b.getEffects(), isEmpty,
+          reason: 'the primary layer alone, not every selected layer');
     });
 
     testWidgets('Open recent lists what the workspace remembers',

@@ -161,11 +161,9 @@ void main() {
           reason: 'a row per declared parameter, labelled from the schema');
     });
 
-    /// **Add lands on every selected layer**, the way the Effect menu
-    /// and the effects console already do. This button reached for the layer
-    /// the panel was showing alone, so the same effect on the same selection
-    /// landed on three layers from the menu and on one from here.
-    testWidgets('Add effect commits to every selected layer', (tester) async {
+    /// Add lands on the shown layer only, the way the Effect menu and the
+    /// effects console do.
+    testWidgets('Add effect commits to the shown layer only', (tester) async {
       final p = freshProject();
       final comp = p.state.project!.newComposition(name: 'Scene');
       final first = comp.addAdjustmentLayer();
@@ -187,8 +185,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(first.getEffects(), hasLength(1));
-      expect(second.getEffects(), hasLength(1),
-          reason: 'the second selected layer must get the effect too');
+      expect(second.getEffects(), isEmpty,
+          reason: 'the second selected layer must not get the effect');
     });
 
     /// **And a stack nobody has selected still takes one.** The panel keeps the

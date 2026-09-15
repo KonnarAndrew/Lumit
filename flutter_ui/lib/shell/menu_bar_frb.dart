@@ -688,38 +688,28 @@ class LumitMenuBarFrb extends StatelessWidget {
   Future<void> _console(BuildContext context) async {
     final ui = Provider.of<LumitUiState>(context, listen: false);
     // With the graph focused, the console is the graph's own add surface: the
-    // panel opens the same popover wearing the canvas's list — a chosen box
-    // lands on the graph — and this one, which applies to the selected layers,
-    // stands down.
+    // panel opens the same popover wearing the canvas's list, where a chosen
+    // box lands on the graph, and this one, which applies to the selected
+    // layer, stands down.
     if (ui.consoleClaim?.call() ?? false) return;
     final comp = ui.selectedComp;
 
     void applyEffect(String name) {
-      final layers = ui.selectedLayers.value;
-      if (layers.isEmpty) return;
-      // Every selected layer, as the Effect menu does.
-      for (final target in layers) {
-        target.addEffect(name: name);
-      }
+      // The primary layer only, as the Effect menu does.
+      final layer = ui.selectedLayer.value;
+      if (layer == null) return;
+      layer.addEffect(name: name);
       app.notifyDocumentChanged();
     }
 
-    // A saved preset's whole stack, to every selected layer — the Effects &
-    // presets panel's own rules: read once, applied per layer, each layer's
-    // refusal leaving the rest of the batch standing.
+    // A saved preset's whole stack, to the primary layer only.
     void applyPreset(BridgePresetInfo preset) {
-      final layers = ui.selectedLayers.value;
-      if (layers.isEmpty) return;
-      final String text;
+      final layer = ui.selectedLayer.value;
+      if (layer == null) return;
       try {
-        text = File(preset.path).readAsStringSync();
+        layer.loadPreset(text: File(preset.path).readAsStringSync());
       } catch (_) {
         return;
-      }
-      for (final layer in layers) {
-        try {
-          layer.loadPreset(text: text);
-        } catch (_) {}
       }
       app.notifyDocumentChanged();
     }
@@ -746,15 +736,12 @@ class LumitMenuBarFrb extends StatelessWidget {
     }
 
     void applyGraph(CompositionReference graph) {
-      final layers = ui.selectedLayers.value;
-      if (layers.isEmpty) return;
-      for (final target in layers) {
-        try {
-          target.addNodeGraphEffect(graph: graph);
-        } catch (_) {
-          // Refused for this layer, whose own comp is the graph. The rest of
-          // the batch stands.
-        }
+      final layer = ui.selectedLayer.value;
+      if (layer == null) return;
+      try {
+        layer.addNodeGraphEffect(graph: graph);
+      } catch (_) {
+        // Refused for this layer, whose own comp is the graph.
       }
       app.notifyDocumentChanged();
     }
@@ -1550,8 +1537,8 @@ List<MenuSection> lumitMenus(
 }
 
 /// The Effect menu: one submenu per effect category, each applying its effect
-/// to every selected layer. Disabled outright with nothing selected — there is
-/// nowhere for an effect to go.
+/// to the primary layer. Disabled outright with nothing selected, since there
+/// is nowhere for an effect to go.
 List<MenuEntry> _effectMenu(LumitState app, List<LayerReference> layers) => [
       for (final group in _effectGroups().entries)
         MenuEntry.submenu(engineLabel(group.key), [
@@ -1561,9 +1548,7 @@ List<MenuEntry> _effectMenu(LumitState app, List<LayerReference> layers) => [
               layers.isEmpty
                   ? null
                   : () {
-                      for (final layer in layers) {
-                        layer.addEffect(name: effect.name);
-                      }
+                      layers.first.addEffect(name: effect.name);
                       app.notifyDocumentChanged();
                     },
             ),

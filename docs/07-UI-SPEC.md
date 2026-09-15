@@ -2665,7 +2665,7 @@ them, and apply to the plain text fields too.
   focuses search when the panel has focus. **A live search overrides every fold** — matches
   show wherever they sit, because a search that hides what it found is a trap — and clearing
   the field puts the folds back as they were.
-- Apply by: double-click (applies to selected layers), drag onto a layer row in the
+- Apply by: double-click (applies to the primary selected layer), drag onto a layer row in the
   Timeline, or drag onto the Viewer (applies to the topmost hit layer, which highlights
   before release).
   - **v1**: the drag-onto-Timeline-row path ships first, scoped to footage and
@@ -2882,7 +2882,7 @@ Export window. Export never blocks editing; the queue runs in the background.
 `Ctrl+Shift+P` opens the command palette from anywhere.
 
 - Fuzzy search over: **commands** (every menu item and every remappable action, with its
-  current shortcut displayed), **effects** (enter applies to the selected layers),
+  current shortcut displayed), **effects** (enter applies to the primary selected layer),
   **comps** (enter opens in the Viewer/Timeline), and **panels** (enter opens/focuses).
 - Arrow keys navigate, `Enter` executes, `Esc` closes; the palette MUST be fully
   keyboard-operable and MUST show category badges so an effect is never mistaken for a
