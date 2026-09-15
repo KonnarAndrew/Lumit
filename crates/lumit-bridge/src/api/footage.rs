@@ -216,11 +216,14 @@ impl FootageReference {
             // with the sequence everywhere else — it reads as the one file it
             // can name.
             #[cfg(feature = "media")]
+            let mut span_name = None;
+            #[cfg(feature = "media")]
             if matches!(
                 doc.item(self.id),
                 Some(lumit_core::model::ProjectItem::Footage(f)) if f.sequence.is_some()
             ) {
                 if let Some(run) = lumit_media::sequence::detect(&picked) {
+                    span_name = Some(run.display_name());
                     picked = run.first;
                 }
             }
@@ -285,6 +288,34 @@ impl FootageReference {
                     }
                 }
                 media.fingerprint = lumit_project::fingerprint_path(&candidate).ok();
+                // A run still wearing its import name is renamed for its new span.
+                // The old name is matched with any digits, so a name the user chose is kept.
+                #[cfg(feature = "media")]
+                if let Some(name) = span_name.as_ref().filter(|_| is_target) {
+                    let was = Self::stored_path(&p, other).map(|first| {
+                        lumit_media::sequence::Run {
+                            pattern: PathBuf::new(),
+                            start: 0,
+                            count: 1,
+                            first,
+                        }
+                        .display_name()
+                    });
+                    let automatic = was.is_some_and(|was| {
+                        was.len() == other.name.len()
+                            && was.contains('[')
+                            && was
+                                .bytes()
+                                .zip(other.name.bytes())
+                                .all(|(a, b)| a == b || (a.is_ascii_digit() && b.is_ascii_digit()))
+                    });
+                    if automatic && *name != other.name {
+                        ops.push(lumit_core::Op::RenameItem {
+                            id: other.id,
+                            name: name.clone(),
+                        });
+                    }
+                }
                 #[cfg(feature = "media")]
                 repointed.push(lumit_media::MediaSource {
                     path: candidate,

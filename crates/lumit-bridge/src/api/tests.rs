@@ -453,6 +453,72 @@ fn relinking_a_sequence_by_any_of_its_frames_finds_the_run_and_its_neighbours() 
     );
 }
 
+// A relinked run that grew is renamed for its new span in one undo step,
+// and a run the user renamed keeps its name.
+#[cfg(feature = "media")]
+#[test]
+fn relinking_a_sequence_renames_it_for_its_new_span_unless_the_user_renamed_it() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    for n in 1..=60u32 {
+        std::fs::write(dir.path().join(format!("frame{n:04}.png")), b"f").expect("frame");
+    }
+    let picked = dir
+        .path()
+        .join("frame0042.png")
+        .to_string_lossy()
+        .into_owned();
+
+    let project = LumitBridgeState::new_project(None).expect("a new project");
+    let seed = |name: &str| {
+        let item = FootageItem {
+            colour_space: None,
+            sequence: Some(lumit_core::model::SequenceRef::default()),
+            id: Uuid::now_v7(),
+            name: name.into(),
+            media: MediaRef {
+                relative_path: "frame0001.png".into(),
+                absolute_path: "/nowhere/frames/frame0001.png".into(),
+                fingerprint: None,
+                extra: serde_json::Map::new(),
+            },
+            extra: serde_json::Map::new(),
+        };
+        let id = item.id;
+        let state = project.state().expect("state");
+        let state = state.write().expect("write");
+        state
+            .store
+            .commit(Op::AddItem {
+                index: 0,
+                item: Box::new(ProjectItem::Footage(item)),
+            })
+            .expect("seeded");
+        id
+    };
+    let automatic = seed("frame[0001-0050].png");
+    let chosen = seed("Hero plate");
+    let name_of = |id: Uuid| {
+        let state = project.state().expect("state");
+        let state = state.read().expect("read");
+        match state.store.snapshot().item(id) {
+            Some(ProjectItem::Footage(f)) => f.name.clone(),
+            _ => panic!("the footage is still there"),
+        }
+    };
+
+    FootageReference::new(project.id, automatic)
+        .relink(picked.clone())
+        .expect("relinked");
+    assert_eq!(name_of(automatic), "frame[0001-0060].png");
+    project.undo().expect("undone");
+    assert_eq!(name_of(automatic), "frame[0001-0050].png");
+
+    FootageReference::new(project.id, chosen)
+        .relink(picked)
+        .expect("relinked");
+    assert_eq!(name_of(chosen), "Hero plate");
+}
+
 /// A placed clip must land in the composition; the span/size fallbacks are what
 /// let a *missing* file still place, so the user can relink rather than being
 /// unable to add it at all.
