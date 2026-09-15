@@ -28,6 +28,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lumit_flutter/icons/lumit_icon.dart' as glyph;
+import 'package:lumit_flutter/icons/lumit_icons.dart';
 import 'package:lumit_flutter/main.dart';
 import 'package:lumit_flutter/src/rust/api/assets.dart';
 import 'package:lumit_flutter/panels/transform_rows_frb.dart' show writeScalar;
@@ -712,16 +714,14 @@ void main() {
           reason: 'the setting keeps the playhead where the picture stopped');
     }, skip: zeroCopyViewerUnavailable);
 
-    /// Running off the end is the engine's to notice: it knows the length and it
-    /// is the one counting. The frontend is *told*, and that is the only reason
-    /// its transport goes back to showing a play button.
-    testWidgets('playback ends on its own at the end of the composition',
-        (tester) async {
-      final p = withLayer();
-      // A tenth of a second, so the end arrives inside a test rather than in the
-      // thirty seconds a default comp lasts.
-      final was = p.comp.getSettings();
-      p.comp.setSettings(
+    /// A six-frame comp with its work area on frames 1 to 4, so a loop mode
+    /// has an end to reach inside a test. A tenth of a second, so the end
+    /// arrives inside a test rather than in the thirty seconds a default comp
+    /// lasts.
+    void shortWorkArea(dynamic p) {
+      final comp = p.comp as CompositionReference;
+      final was = comp.getSettings();
+      comp.setSettings(
         settings: BridgeCompSettings(
           name: was.name,
           width: 160,
@@ -734,8 +734,27 @@ void main() {
           duration: const BridgeRational(num: 1, den: 10),
         ),
       );
+      comp.setWorkArea(
+        span: BridgeSpan(
+          inPoint: comp.timeOfFrame(frame: 1),
+          outPoint: comp.timeOfFrame(frame: 4),
+          startOffset: const BridgeRational(num: 0, den: 1),
+        ),
+      );
+    }
+
+    /// Running off the end is the engine's to notice: it knows the length and it
+    /// is the one counting. The frontend is *told*, and that is the only reason
+    /// its transport goes back to showing a play button. The playhead is parked
+    /// past the work area, which is the one run that does not loop.
+    testWidgets('playback ends on its own at the end of the composition',
+        (tester) async {
+      final p = withLayer();
+      shortWorkArea(p);
       await mount(tester, p);
       expect(p.comp.durationFrames(), 6, reason: '0.1 s at 60 fps');
+      p.uiState.playheadFrame.value = 5;
+      await tester.pump();
 
       await pressBar(tester, 'viewer-play');
       await tester.pump();
@@ -747,6 +766,85 @@ void main() {
 
       expect(p.uiState.playing.value, isFalse,
           reason: 'the engine said it ended; nothing in Dart worked it out');
+    });
+
+    testWidgets('play once stops at the work-area end and returns the playhead',
+        (tester) async {
+      final p = withLayer();
+      shortWorkArea(p);
+      p.uiState.workspace.performance.loop = LoopMode.once;
+      await mount(tester, p);
+
+      await pressBar(tester, 'viewer-play');
+      await tester.pump();
+      await settleFrb(tester,
+          minRounds: 6,
+          maxRounds: coldWorkerRounds,
+          until: () => !p.uiState.playing.value);
+
+      expect(p.uiState.playing.value, isFalse,
+          reason: 'the work-area end stopped the run');
+      expect(p.uiState.playheadFrame.value, 0,
+          reason: 'stopping returns the playhead to where play started');
+    }, skip: zeroCopyViewerUnavailable);
+
+    testWidgets('ping-pong turns round at the work-area end', (tester) async {
+      final p = withLayer();
+      shortWorkArea(p);
+      p.uiState.workspace.performance.loop = LoopMode.pingPong;
+      await mount(tester, p);
+
+      // The turn sets the playhead back in the same handler that saw the end
+      // frame, so the end is caught by a listener rather than polled for.
+      var reachedEnd = false;
+      void watch() {
+        if (p.uiState.playheadFrame.value >= 4) reachedEnd = true;
+      }
+
+      p.uiState.playheadFrame.addListener(watch);
+      addTearDown(() => p.uiState.playheadFrame.removeListener(watch));
+
+      await pressBar(tester, 'viewer-play');
+      await tester.pump();
+      await settleFrb(tester,
+          minRounds: 6,
+          maxRounds: coldWorkerRounds,
+          until: () => reachedEnd && p.uiState.playheadFrame.value < 4);
+
+      expect(p.uiState.playing.value, isTrue,
+          reason: 'the end of the work area is a turn, not a stop');
+      expect(p.uiState.playheadFrame.value, lessThan(4),
+          reason: 'the playhead is running back down');
+
+      await pressBar(tester, 'viewer-play');
+      await tester.pump();
+    }, skip: zeroCopyViewerUnavailable);
+
+    testWidgets(
+        'the mute mark silences the output and shows the muted speaker',
+        (tester) async {
+      final p = withLayer();
+      p.uiState.workspace.interface.viewerBars = ViewerBars.deck;
+      await mount(tester, p);
+
+      String glyphUnder(String key) => tester
+          .widget<glyph.LumitIcon>(find.descendant(
+            of: find.byKey(ValueKey<String>(key)),
+            matching: find.byType(glyph.LumitIcon),
+          ))
+          .glyph;
+
+      expect(audioMuted(), isFalse);
+      expect(glyphUnder('viewer-mute'), LumitIcons.audio);
+
+      await pressBar(tester, 'viewer-mute');
+      expect(audioMuted(), isTrue, reason: 'the engine was told');
+      expect(p.uiState.audioMuted.value, isTrue);
+      expect(glyphUnder('viewer-mute'), LumitIcons.muted);
+
+      await pressBar(tester, 'viewer-mute');
+      expect(audioMuted(), isFalse);
+      expect(glyphUnder('viewer-mute'), LumitIcons.audio);
     });
 
     testWidgets('the timecode reads HH:MM:SS:FF at the comp rate',
@@ -1283,7 +1381,7 @@ void main() {
       // The tone map is asked for; this test drives it, so it asks.
       p.uiState.workspace.interface.showToneMap = true;
       await mount(tester, p);
-      final t = LumitTheme.forScheme(LumitColorScheme.dark, ThemeShape.sharp);
+      final t = LumitTheme.forScheme(LumitColorScheme.dark, ThemeShape.studio);
 
       final picker = find.byKey(const ValueKey('viewer-colour'));
       expect(picker, findsOneWidget, reason: 'it is always in the header');
@@ -2562,6 +2660,70 @@ void main() {
           reason: 'and so did the other one the sweep caught');
       expect(after[3].x, closeTo(before[3].x, 0.001),
           reason: 'the points the sweep missed stayed put');
+    });
+
+    /// Picking a mask's Path row offers its points on the picture without the
+    /// layer being selected, so a drag there has to write too. Reported from
+    /// the app: the keyed path followed the pointer and snapped back on release.
+    testWidgets("a picked Path row's points stay where they are dragged",
+        (tester) async {
+      final p = withLayer();
+      p.layer.addMask(
+        mask: BridgeMask(
+          id: UuidValue.fromString(const Uuid().v4()),
+          name: 'Rectangle',
+          vertices: const [
+            BridgeVertex(
+                x: 860, y: 440, tanInX: 0, tanInY: 0, tanOutX: 0, tanOutY: 0),
+            BridgeVertex(
+                x: 1060, y: 440, tanInX: 0, tanInY: 0, tanOutX: 0, tanOutY: 0),
+            BridgeVertex(
+                x: 1060, y: 640, tanInX: 0, tanInY: 0, tanOutX: 0, tanOutY: 0),
+            BridgeVertex(
+                x: 860, y: 640, tanInX: 0, tanInY: 0, tanOutX: 0, tanOutY: 0),
+          ],
+          closed: true,
+          inverted: false,
+          opacity: const BridgeScalar.static_(100),
+          mode: BridgeMaskMode.add,
+          feather: const BridgeScalar.static_(0),
+          vertexFeather: const [],
+          expansion: const BridgeScalar.static_(0),
+          pathKeys: const [],
+        ),
+      );
+      final id = p.layer.getMasks().single.id;
+      for (final f in [0, 60]) {
+        p.layer.toggleMaskPathKey(id: id, time: p.comp.timeOfFrame(frame: f));
+      }
+      p.uiState.setSelection([]);
+      p.uiState.selectedProperties.value = [
+        '${p.layer.internallayerId}/masks/$id/path'
+      ];
+      p.uiState.model.refresh();
+      await mount(tester, p);
+
+      final fitted = fittedRect(tester, p.comp);
+      Offset onScreen(double x, double y) => Offset(
+            fitted.left + x / 1920 * fitted.width,
+            fitted.top + y / 1080 * fitted.height,
+          );
+      final drag = await tester.startGesture(onScreen(860, 440));
+      await tester.pump();
+      for (var i = 0; i < 10; i++) {
+        await drag.moveBy(const Offset(6, 0));
+        await tester.pump();
+      }
+      await drag.up();
+      await tester.pumpAndSettle();
+
+      final shown = p.comp.animatedMaskPathsAt(frame: 0).single.vertices;
+      expect(shown[0].x, greaterThan(861),
+          reason: 'the key under the playhead took the drag');
+      expect(shown[1].x, closeTo(1060, 0.001),
+          reason: 'only the point pressed on moved');
+      expect(p.layer.getMasks().single.pathKeys, hasLength(2),
+          reason: 'the drag reused the key there');
     });
 
     /// **A shape layer's own art is correctable on the picture**, by the same

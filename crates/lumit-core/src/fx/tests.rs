@@ -4043,8 +4043,7 @@ fn glow_instantiates_resolves_and_pins_the_one_sided_threshold() {
     assert_eq!(e.float_at("radius", 0.0), Some(24.0));
     assert_eq!(e.float_at("intensity", 0.0), Some(1.0));
     assert_eq!(e.colour_at("tint", 0.0), Some([1.0; 4]));
-    // A fresh instance is the single gaussian with no fringe: the halo's
-    // shape is the picture, so the octaves arrive only when asked for.
+    // A fresh instance is the gaussian with no fringe.
     assert_eq!(e.float_at("falloff", 0.0), Some(0.0));
     assert_eq!(e.float_at("chromatic", 0.0), Some(0.0));
     assert_eq!(e.float_at("chromatic_angle", 0.0), Some(0.0));
@@ -4056,8 +4055,6 @@ fn glow_instantiates_resolves_and_pins_the_one_sided_threshold() {
         (
             cpu::GlowHalo {
                 radius_px: 12.0,
-                // Falloff 0 packs one octave: the stack is never dispatched.
-                octaves: 1,
                 falloff: 0.0,
                 chromatic_px: 0.0,
                 fringe_angle_deg: 0.0,
@@ -4074,8 +4071,8 @@ fn glow_instantiates_resolves_and_pins_the_one_sided_threshold() {
             1.0
         )
     );
-    // Any Falloff above zero picks the octave stack up, and the fringe is a
-    // fraction of the *scaled* radius, so it follows the halo it sits on into a
+    // Falloff rides through as set, and the fringe is a fraction of the
+    // *scaled* radius, so it follows the halo it sits on into a
     // preview. The angle rides through untouched.
     let mut on = instantiate("glow").unwrap();
     for p in &mut on.params {
@@ -4093,7 +4090,6 @@ fn glow_instantiates_resolves_and_pins_the_one_sided_threshold() {
         g.packed().0,
         cpu::GlowHalo {
             radius_px: 12.0,
-            octaves: effects::glow::OCTAVES,
             falloff: 2.0,
             chromatic_px: 6.0,
             fringe_angle_deg: 30.0,
@@ -4210,20 +4206,17 @@ fn cpu_glow_blooms_spreads_alpha_and_keeps_neutral_exact() {
 }
 
 /// **Falloff** (docs/08 §3.3): one bright pixel on black, so the halo is the
-/// profile and both shapes can be read off the row through it. The stack keeps
-/// the light near the source and lets a little of it travel, which is the whole
-/// difference between a bloom that reads as light and one that reads as grey
-/// mush. Falloff steers how hard it does that, and **zero is the plain gaussian
-/// to the byte** even with the octaves dispatched, which is what lets one slider
-/// carry the whole range.
+/// profile. At every Falloff it has to be round and carry on past the Radius,
+/// a gaussian at 0 and an exponential above it. The glow used to stop dead at
+/// the Radius in a square, which is what a bright glow showed.
 #[test]
-fn cpu_glow_octaves_gather_the_halo_into_a_core() {
-    let (w, h) = (65u32, 9u32);
+fn cpu_glow_halo_is_round_and_has_no_edge() {
+    let (w, h) = (129u32, 129u32);
     let at = |x: u32, y: u32| ((y * w + x) * 4) as usize;
     let mut img = vec![0.0f32; (w * h * 4) as usize];
-    let mid = at(32, 4);
-    img[mid..mid + 4].copy_from_slice(&[8.0, 8.0, 8.0, 1.0]);
-    let bloom = |octaves: u32, falloff: f32| {
+    let mid = at(64, 64);
+    img[mid..mid + 4].copy_from_slice(&[100.0, 100.0, 100.0, 1.0]);
+    let bloom = |falloff: f32| {
         let mut out = img.clone();
         cpu::glow_shaped(
             &mut out,
@@ -4231,7 +4224,6 @@ fn cpu_glow_octaves_gather_the_halo_into_a_core() {
             h,
             &cpu::GlowHalo {
                 radius_px: 16.0,
-                octaves,
                 falloff,
                 chromatic_px: 0.0,
                 fringe_angle_deg: 0.0,
@@ -4239,7 +4231,7 @@ fn cpu_glow_octaves_gather_the_halo_into_a_core() {
                 fringe_wavelength: false,
                 fringe_samples: 16,
             },
-            1.0,
+            0.0,
             0.0,
             1.0,
             [1.0; 4],
@@ -4249,40 +4241,81 @@ fn cpu_glow_octaves_gather_the_halo_into_a_core() {
         out
     };
 
-    // One octave is the single gaussian this effect shipped with, to the byte.
-    let flat = bloom(1, 0.0);
+    // A 3-4-5 triangle puts a point on the axis and one off it at the same
+    // distance, so a square halo shows up as two different values.
+    let round = |halo: &[f32], name: &str| {
+        for (r, off) in [(20u32, (12, 16)), (35, (21, 28))] {
+            let axis = halo[at(64 + r, 64)];
+            let diagonal = halo[at(64 + off.0, 64 + off.1)];
+            assert!(
+                (axis / diagonal - 1.0).abs() < 0.1,
+                "{name} round at {r} px: {axis} on the axis, {diagonal} off it"
+            );
+        }
+    };
+
+    // Zero is the gaussian, σ half the Radius, still going past twice it.
+    let gaussian = bloom(0.0);
     let mut plain = img.clone();
-    cpu::glow(&mut plain, w, h, 16.0, 1.0, 0.0, 1.0, [1.0; 4], 1.0, &[]);
-    assert_eq!(flat, plain, "one octave is the gaussian bloom unchanged");
-
-    // And so is the full stack at Falloff 0: every tighter octave weighs
-    // nothing, so the widest keeps all of the light. The pack skips the passes,
-    // but the arithmetic agrees with it rather than merely rounding to it.
-    assert_eq!(
-        bloom(effects::glow::OCTAVES, 0.0),
-        plain,
-        "falloff 0 is the plain gaussian even with the stack dispatched"
-    );
-
-    // Two pixels out the stack is the brighter of the two. Twelve out, still
-    // inside the gaussian's own kernel, it is the fainter.
-    let stacked = bloom(effects::glow::OCTAVES, 2.0);
+    cpu::glow(&mut plain, w, h, 16.0, 0.0, 0.0, 1.0, [1.0; 4], 1.0, &[]);
+    assert_eq!(gaussian, plain, "falloff 0 is the plain glow");
+    round(&gaussian, "gaussian");
     assert!(
-        stacked[at(34, 4)] > flat[at(34, 4)],
-        "the core gathers light"
+        gaussian[at(99, 64)] > 0.0,
+        "the gaussian carries on past the Radius"
     );
-    assert!(stacked[at(44, 4)] < flat[at(44, 4)], "the reach thins out");
+    let (near, far) = (gaussian[at(76, 64)], gaussian[at(88, 64)]);
+    let sigma = ((24.0f32 * 24.0 - 12.0 * 12.0) / 2.0 / (near / far).ln()).sqrt();
+    assert!((sigma / 8.0 - 1.0).abs() < 0.05, "σ {sigma}, expected 8");
 
-    // A steeper Falloff pulls harder on both ends of that.
-    let steep = bloom(effects::glow::OCTAVES, 16.0);
+    let exp = bloom(1e-3);
+    round(&exp, "exponential");
+    // It falls by the same factor every pixel, at the core's decay length.
+    let (near, far) = (exp[at(84, 64)], exp[at(99, 64)]);
+    assert!(far > 0.0, "the light carries on past twice the Radius");
+    let lambda = 16.0 * cpu::GLOW_CORE;
+    let measured = 15.0 / (near / far).ln();
     assert!(
-        steep[at(44, 4)] < stacked[at(44, 4)],
-        "falloff 16 reaches less far than falloff 2"
+        (measured / lambda - 1.0).abs() < 0.1,
+        "decay length {measured}, expected {lambda}"
     );
+
+    // A higher Falloff sends more of the light further out.
+    let wide = bloom(2.0);
     assert!(
-        steep[at(33, 4)] > stacked[at(33, 4)],
-        "and holds more of the light against the source"
+        wide[at(124, 64)] > 4.0 * exp[at(124, 64)],
+        "falloff 2 reaches further"
     );
+}
+
+/// The exponentials behind Falloff: each twice as wide as the last, their
+/// shares adding up to one, and nothing strange at the ends of either slider.
+#[test]
+fn glow_octaves_share_the_light_and_stay_finite() {
+    let o = cpu::glow_octaves(16.0, 1.0, 64, 64);
+    let total: f32 = o.iter().map(|o| o.weight).sum();
+    assert!((total - 1.0).abs() < 1e-6);
+    for pair in o.windows(2) {
+        let (a, b) = (pair[0].step * pair[0].lambda, pair[1].step * pair[1].lambda);
+        assert!((b / a - 2.0).abs() < 1e-4, "each is twice as wide");
+        assert!(
+            (pair[1].weight / pair[0].weight - 0.5).abs() < 1e-4,
+            "falloff 1 halves"
+        );
+    }
+    // An endless Falloff shares the light evenly rather than going NaN.
+    for o in cpu::glow_octaves(16.0, f32::INFINITY, 64, 64) {
+        assert!((o.weight - 0.2).abs() < 1e-6);
+    }
+    // No Radius is a single tap, and a huge one stops growing the grid step or
+    // the convolution at twice the picture.
+    for o in cpu::glow_octaves(0.0, 1.0, 64, 64) {
+        assert!(o.step == 1.0 && o.taps == 1 && o.lambda > 0.0);
+    }
+    for o in cpu::glow_octaves(1e9, 1.0, 64, 64) {
+        assert!(o.step == 128.0 && o.taps == cpu::GLOW_REACH as i32);
+        assert_eq!(cpu::glow_grid(64, o.step), 1);
+    }
 }
 
 /// **Chromatic aberration** (docs/08 §3.3): the fringe is spent on the halo
@@ -4307,7 +4340,6 @@ fn cpu_glow_fringe_colours_the_halo_and_leaves_the_picture() {
             h,
             &cpu::GlowHalo {
                 radius_px: 6.0,
-                octaves: 1,
                 falloff: 0.0,
                 chromatic_px,
                 fringe_angle_deg: angle,
@@ -4356,10 +4388,11 @@ fn cpu_glow_fringe_colours_the_halo_and_leaves_the_picture() {
     assert!(rb(&turned, above) > 1e-4, "angle 90 splits along y");
     assert!(rb(&turned, beside) < 1e-5, "and leaves the x axis grey");
 
-    // The picture keeps its own pixels: a corner the halo never reaches is
-    // untouched, fringe or no fringe.
+    // The picture keeps its own pixels: a corner the halo barely reaches is all
+    // but untouched, fringe or no fringe.
     let far = at(30, 0);
-    assert_eq!(fringed[far..far + 4], img[far..far + 4]);
+    let untouched = |px: &[f32]| (0..4).all(|c| (px[far + c] - img[far + c]).abs() < 1e-3);
+    assert!(untouched(&fringed));
 
     // **Wavelength** runs the same offset as a gradient of taps rather than
     // three, so it is a different picture at the same Amount, and it still
@@ -4372,7 +4405,7 @@ fn cpu_glow_fringe_colours_the_halo_and_leaves_the_picture() {
             .any(|i| (spectral[i] - spectral[i + 2]).abs() > 1e-4),
         "the spectral halo broke into colour too"
     );
-    assert_eq!(spectral[far..far + 4], img[far..far + 4]);
+    assert!(untouched(&spectral));
 
     // **The three colours** are read on both tiers: swap red and blue and the
     // fringe swaps with them.
@@ -10870,6 +10903,312 @@ fn only_spatial_values_rescale() {
     );
 }
 
+/// A document holding one comp lit by `n` visible area lights, spaced along
+/// x from 300 by 100, each `(80, 40)` half-size at y 200 — what a Lights-mode
+/// flare resolves its derived sources from. Returns the document and the
+/// comp's id, ready for an [`ExpressionContext`].
+fn lit_document(n: usize) -> (crate::model::Document, Uuid) {
+    use crate::model::*;
+    use crate::time::{CompTime, Duration, FrameRate};
+
+    let mut comp = Composition {
+        graph: None,
+        master_volume_db: 0.0,
+        sound_mix: false,
+        groups: Vec::new(),
+        beat_grid: None,
+        id: Uuid::now_v7(),
+        name: "Scene".into(),
+        width: 1920,
+        height: 1080,
+        frame_rate: FrameRate::new(30, 1).unwrap(),
+        duration: Duration(Rational::new(5, 1).unwrap()),
+        background: LinearColour::BLACK,
+        work_area: None,
+        layers: Vec::new(),
+        markers: Vec::new(),
+        motion_blur: MotionBlur::default(),
+        extra: serde_json::Map::new(),
+    };
+    for i in 0..n {
+        comp.layers.push(Layer {
+            graph: Default::default(),
+            markers: Vec::new(),
+            id: Uuid::now_v7(),
+            name: "Light".into(),
+            kind: LayerKind::Light {
+                light: Box::new(LightDef {
+                    kind: LightKind::Area,
+                    half_size: [Property::fixed(80.0), Property::fixed(40.0)],
+                    ..LightDef::default()
+                }),
+            },
+            in_point: CompTime(Rational::new(0, 1).unwrap()),
+            out_point: CompTime(Rational::new(5, 1).unwrap()),
+            start_offset: CompTime(Rational::new(0, 1).unwrap()),
+            transform: TransformGroup {
+                position_x: Property::fixed(300.0 + 100.0 * i as f64),
+                position_y: Property::fixed(200.0),
+                ..TransformGroup::default()
+            },
+            matte: None,
+            parent: None,
+            label: 0,
+            volume_db: Property::zero(),
+            pan: Property::zero(),
+            audio_only: false,
+            adjustment: false,
+            retime: None,
+            interpolation: Default::default(),
+            parked_flow: None,
+            graph_inputs: None,
+            blend: Default::default(),
+            masks: Vec::new(),
+            paint: Vec::new(),
+            puppet: None,
+            effects: Vec::new(),
+            styles: Vec::new(),
+            switches: Switches::default(),
+            extra: serde_json::Map::new(),
+        });
+    }
+    let comp_id = comp.id;
+    let mut document = Document::new();
+    document.items.push(ProjectItem::Composition(comp));
+    (document, comp_id)
+}
+
+/// Every byte [`ResolvedStack::feed_hash`] writes for the stack — the frame
+/// key's view of it, so two arenas that hash alike are the same arena.
+fn stack_bytes(stack: &ResolvedStack) -> Vec<u8> {
+    let mut bytes: Vec<u8> = Vec::new();
+    stack.feed_hash(&mut |b| bytes.extend_from_slice(b));
+    bytes
+}
+
+/// **A derived pixel length follows the raster** (docs/impl/effect-registry.md
+/// §2.4a). Scanlines' `derived.roll_px` is roll speed × layer time × the
+/// *raster* period, so it is in raster pixels — but a derived id matches no
+/// schema row, and the generic rescale used to move the period and leave the
+/// roll behind, shifting the pattern's phase with the size of the raster a
+/// precomp was realised at. [`EffectDef::derived_spatial`] is how the effect
+/// tells the pass; this pins that it does, that the derived intensity (a
+/// strength, not a length) stays put, that the result lands exactly where a
+/// direct resolve against the smaller raster lands, and that factor 1 leaves
+/// the arena bit-identical.
+#[test]
+fn a_derived_roll_moves_with_the_raster() {
+    let mut e = instantiate("scanlines").unwrap();
+    for p in &mut e.params {
+        if p.id == "scanline_roll" {
+            p.value = EffectValue::Float(Property::fixed(4.0));
+        }
+    }
+    let resolve = |px_scale: f32| {
+        super::resolve_stack(
+            std::slice::from_ref(&e),
+            0.5,
+            1000.0 * px_scale,
+            px_scale,
+            &MarkerContext::NONE,
+            Arc::new(ExpressionContext::detached()),
+        )
+    };
+    let packed = |ops: &ResolvedStack| {
+        let p = ops.get(0).expect("the scanlines op").params;
+        let (i, r) = effects::scanlines::Scanlines::derived_of(p);
+        effects::scanlines::Scanlines::read(p).packed(i, r)
+    };
+
+    // At the comp raster: a 3 px period, and 4 lines/s at 0.5 s over it = 6 px.
+    let mut ops = resolve(1.0);
+    let (_, period, roll, _, _) = packed(&ops);
+    assert_eq!(period, 3.0);
+    assert_eq!(
+        roll, 6.0,
+        "the roll is non-zero, so a lost multiply cannot hide"
+    );
+
+    // Reused at half size: both lengths halve, and nothing else moves.
+    ops.rescale_spatial(0.5);
+    let (intensity, period, roll, interlace, mix) = packed(&ops);
+    assert_eq!(period, 1.5, "the declared Px period follows the raster");
+    assert_eq!(roll, 3.0, "and so does the derived roll offset");
+    assert_eq!(intensity, 0.35, "the derived intensity is not a length");
+    assert!(!interlace);
+    assert_eq!(mix, 1.0);
+
+    // Which is exactly where resolving against the half raster lands — the
+    // phase a precomp at that size would have had on its own.
+    assert_eq!(packed(&resolve(0.5)), packed(&ops));
+
+    // Factor 1 is exactly a no-op, over the whole arena.
+    let mut same = resolve(1.0);
+    let before = stack_bytes(&same);
+    same.rescale_spatial(1.0);
+    assert_eq!(stack_bytes(&same), before);
+}
+
+/// **The flare's light geometry follows the raster and its colour does not.**
+/// A Lights-mode source rides the bag as two derived `Colour` entries — its
+/// `(x, y, half_w, half_h)` in raster pixels and its `(r, g, b, 0)` — and only
+/// the first is a length. The old `rescale_px` match never moved either; the
+/// generic pass now moves exactly the geometry, all four components, by the
+/// factor a declared `Px` row moves by, and lands where a direct resolve at
+/// the smaller raster lands.
+#[test]
+fn a_flares_light_geometry_moves_and_its_colour_does_not() {
+    let (document, comp_id) = lit_document(2);
+    let context = Arc::new(ExpressionContext {
+        document: Arc::new(document),
+        comp: Some(comp_id),
+        comp_time: 1.0,
+        ..ExpressionContext::detached()
+    });
+    let mut flare = instantiate("lens_flare").unwrap();
+    for p in &mut flare.params {
+        if p.id == "source_type" {
+            p.value = EffectValue::Choice(2);
+        }
+    }
+    let resolve = |px_scale: f32| {
+        super::resolve_stack(
+            std::slice::from_ref(&flare),
+            0.0,
+            2202.9 * px_scale,
+            px_scale,
+            &MarkerContext::NONE,
+            context.clone(),
+        )
+    };
+    let lights = |ops: &ResolvedStack| {
+        effects::lens_flare::LensFlare::lights_of(ops.get(0).expect("the flare op").params)
+    };
+
+    let mut ops = resolve(1.0);
+    let before: Vec<(ParamId, Value)> = ops.get(0).expect("the flare op").params.iter().collect();
+    let (_, count) = lights(&ops);
+    assert_eq!(count, 2, "both lights resolved");
+
+    ops.rescale_spatial(0.5);
+    let after = ops.get(0).expect("the flare op").params;
+    for (geom, rgb) in effects::lens_flare::LensFlare::DERIVED_LIGHTS
+        .iter()
+        .take(count as usize)
+    {
+        let was = |id: ParamId| {
+            before
+                .iter()
+                .find(|(k, _)| *k == id)
+                .map(|(_, v)| *v)
+                .expect("the light was pushed at the comp raster")
+        };
+        let Value::Colour(g0) = was(*geom) else {
+            panic!("geometry is a Colour entry");
+        };
+        assert_eq!(
+            after.colour(*geom, [f32::NAN; 4]),
+            g0.map(|v| v * 0.5),
+            "every geometry component is a length and halves"
+        );
+        assert_eq!(
+            Value::Colour(after.colour(*rgb, [f32::NAN; 4])),
+            was(*rgb),
+            "the colour entry is not a length and does not move"
+        );
+    }
+    let (lit, count) = lights(&ops);
+    assert_eq!(count, 2, "the count is not a length either");
+    assert_eq!(lit[0].pos, [150.0, 100.0]);
+    assert_eq!(lit[0].extent, [40.0, 20.0]);
+    assert_eq!(lit[0].rgb, [1.0, 1.0, 1.0]);
+    assert_eq!(lit[1].pos, [200.0, 100.0]);
+
+    // Where resolving against the half raster puts them, bit for bit.
+    assert_eq!(lights(&resolve(0.5)), lights(&ops));
+
+    // Factor 1 is exactly a no-op, over the whole arena.
+    let mut same = resolve(1.0);
+    let before = stack_bytes(&same);
+    same.rescale_spatial(1.0);
+    assert_eq!(stack_bytes(&same), before);
+}
+
+/// **Every derived spatial id is one the effect actually derives.** A list
+/// entry that names a declared row would double-scale it (the row's own unit
+/// already moves it); one that names nothing the hook pushes is a promise the
+/// rescale pass can never keep; and one whose value is not a length has no
+/// business in the list at all. So for every built-in: no entry is a schema
+/// id, none repeats, and each is pushed by `resolve_derived` as a `Float`,
+/// `Colour` or `Vec4` — run in the richest context any declaring effect
+/// wants, a Lights-mode comp with the full complement of lights, so the
+/// flare's sixteen geometry ids all come out.
+#[test]
+fn every_derived_spatial_id_is_one_the_effect_actually_derives() {
+    let (document, comp_id) = lit_document(crate::fx::lens_flare::MAX_SOURCES);
+    let context = Arc::new(ExpressionContext {
+        document: Arc::new(document),
+        comp: Some(comp_id),
+        comp_time: 1.0,
+        ..ExpressionContext::detached()
+    });
+    let mut declaring = 0;
+    for def in BUILTIN_DEFS.iter() {
+        let name = def.schema().match_name;
+        let spatial = def.derived_spatial();
+        for p in def.schema().params {
+            assert!(
+                !spatial.contains(&ParamId::new(p.id)),
+                "{name}: {} is a declared row and carries its own unit",
+                p.id
+            );
+        }
+        for (i, id) in spatial.iter().enumerate() {
+            assert!(
+                !spatial[..i].contains(id),
+                "{name}: a derived spatial id is listed twice"
+            );
+        }
+        if spatial.is_empty() {
+            continue;
+        }
+        declaring += 1;
+        let mut inst = instantiate(name).unwrap_or_else(|| panic!("{name} is a built-in"));
+        // The one mode fork among the declaring effects: the flare pushes its
+        // lights only in Lights mode.
+        for p in &mut inst.params {
+            if p.id == "source_type" {
+                p.value = EffectValue::Choice(2);
+            }
+        }
+        let mut pushed: Vec<(ParamId, Value)> = Vec::new();
+        def.resolve_derived(
+            &ResolveCx {
+                inst: &inst,
+                lt: 0.5,
+                diag_px: 2202.9,
+                px_scale: 1.0,
+                markers: &MarkerContext::NONE,
+                context: context.clone(),
+            },
+            &mut |id, value| pushed.push((id, value)),
+        );
+        for id in spatial {
+            let Some((_, value)) = pushed.iter().find(|(k, _)| k == id) else {
+                panic!("{name} lists a derived spatial id its resolve_derived never pushes");
+            };
+            assert!(
+                matches!(value, Value::Float(_) | Value::Colour(_) | Value::Vec4(_)),
+                "{name}: a derived spatial value is a length or a vector of them, not {value:?}"
+            );
+        }
+    }
+    assert_eq!(
+        declaring, 2,
+        "Scanlines and the Lens flare are the two today"
+    );
+}
+
 /// docs/impl/effect-registry.md §7 test 4, deferred from the plumbing stage: a
 /// spatial parameter in the arena rescales under [`ResolvedStack::rescale_spatial`]
 /// **exactly** as the old `Resolved` op did.
@@ -12293,7 +12632,7 @@ fn every_effect_carries_a_matte_row() {
             );
             continue;
         }
-        // **Three image effects opt out** (the owner's rule for mattes), and
+        // **Five image effects opt out** (the owner's rule for mattes), and
         // each has its own reason.
         //
         // The **Matte key**: a keyer's subject is the picture it keys, and a
@@ -12313,9 +12652,24 @@ fn every_effect_carries_a_matte_row() {
         // over a coverage, and the honest place to say "not there" is another
         // stroke.
         //
+        // **Depth**: the third of that family. What it draws is a reading of
+        // the picture underneath - how far away every pixel is, as a model saw
+        // it - and a matte over a reading would gate a measurement, which is
+        // not a thing a measurement has an answer to. Where a reading is wanted
+        // in part of the frame, the effect that consumes it takes the matte.
+        //
+        // **Remove background**: Set matte's answer and the Roto brush's, on
+        // the tier Depth is on. What it applies IS the coverage a model made of
+        // this frame, so a second picture saying how much of it happens here
+        // would be a coverage over a coverage, and the honest way to keep part
+        // of the background is a mask on the layer.
+        //
         // Anything else that wants to opt out is argued for here, in these
         // words, before it may.
-        if matches!(s.match_name, "matte_key" | "set_matte" | "roto_brush") {
+        if matches!(
+            s.match_name,
+            "matte_key" | "set_matte" | "roto_brush" | "depth" | "remove_background"
+        ) {
             assert_eq!(
                 s.matte,
                 MatteRole::None,
@@ -13872,6 +14226,81 @@ fn a_button_is_a_row_with_no_value() {
         ids.is_empty() && ops.is_empty(),
         "a handle resolved to an op"
     );
+}
+
+/// **A button is a row with no value, on an effect that does draw one.**
+///
+/// The Camera track proves the three promises on a handle that resolves to no
+/// op at all. The planes tier is the other half of the claim: both its effects
+/// draw pixels, so each resolves to a real op with a real bag, and the two
+/// buttons must still be absent from it - otherwise pressing Analyse would
+/// rename every cached frame on the layer, which is precisely the thing the
+/// analysis exists to avoid (docs/impl/addons.md §13).
+#[test]
+fn a_button_on_a_drawing_effect_is_still_not_in_the_bag() {
+    use crate::fx::effects::{depth::Depth, remove_background::RemoveBackground};
+
+    for (name, analyse, cancel, view) in [
+        ("depth", Depth::ANALYSE, Depth::CANCEL, Depth::VIEW),
+        (
+            "remove_background",
+            RemoveBackground::ANALYSE,
+            RemoveBackground::CANCEL,
+            RemoveBackground::VIEW,
+        ),
+    ] {
+        let def = BUILTIN_DEFS.get(name).expect("declared");
+        let s = def.schema();
+        let buttons: Vec<&str> = s
+            .params
+            .iter()
+            .filter(|p| p.kind == ParamKind::Action)
+            .map(|p| p.id)
+            .collect();
+        assert_eq!(
+            buttons,
+            ["analyse", "cancel"],
+            "{name}: the two the note names"
+        );
+        assert!(def.is_image_op(), "{name} draws the plane it analysed");
+
+        let e = instantiate(name).expect("instantiates");
+        for id in &buttons {
+            assert!(
+                e.param(id).is_none(),
+                "{name}: {id} was written into the instance"
+            );
+        }
+        let before = e.params.len();
+        let mut list = vec![e.clone()];
+        crate::fx::backfill_builtin_params(&mut list);
+        assert_eq!(
+            list[0].params.len(),
+            before,
+            "{name}: the backfill grew a button"
+        );
+
+        let (_, ops) = super::resolve_stack_temporal_named(
+            std::slice::from_ref(&e),
+            super::ResolvedDrivers::NONE,
+            0.0,
+            0.0,
+            1000.0,
+            1.0,
+            &MarkerContext::NONE,
+            Arc::new(ExpressionContext::detached()),
+        );
+        let op = ops.get(0).expect("it resolves to an op");
+        assert!(
+            op.params.get(analyse).is_none() && op.params.get(cancel).is_none(),
+            "{name}: a button reached the arena"
+        );
+        assert_eq!(
+            op.params.choice(view, 9),
+            0,
+            "{name}: and the rows that are values did reach it"
+        );
+    }
 }
 
 /// The Camera track is a handle: it registers, it files under Utility, it

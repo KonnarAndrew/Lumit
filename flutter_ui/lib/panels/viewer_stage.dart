@@ -52,7 +52,6 @@ import 'viewer_zoom.dart';
 export '../state/viewer_view.dart' show ViewerChannel;
 import '../state/viewer_view.dart' show ViewerChannel;
 
-
 /// What is painted around the picture.
 ///
 /// Neutral by default, and deliberately so: a grade cannot be judged against a
@@ -157,9 +156,10 @@ class ViewerStage extends StatelessWidget {
     return null;
   }
 
-  /// The Roto brush on the **selected** layer, and which picture it is drawing.
-  /// Null when the selection carries none, which is what makes the Roto tools
-  /// say so rather than swallowing a scribble.
+  /// The Roto brush on the **selected** layer, which picture it is drawing, and
+  /// what its base frame is seeded from. Null when the selection carries none,
+  /// which is what makes the Roto tools say so rather than swallowing a
+  /// scribble.
   ///
   /// From the read model, which already carries every layer's every
   /// effect with its values — so the overlay's target costs no bridge call, and
@@ -172,13 +172,14 @@ class ViewerStage extends StatelessWidget {
       for (final fx in entry.info.effects) {
         if (fx.name != 'roto_brush' || !fx.enabled) continue;
         var view = 0;
+        var seed = 0;
         for (final v in fx.values) {
-          if (v.id != 'view') continue;
           if (v.value case BridgeEffectValue_Choice(:final field0)) {
-            view = field0;
+            if (v.id == 'view') view = field0;
+            if (v.id == 'seed') seed = field0;
           }
         }
-        return (effect: fx.id, view: view);
+        return (effect: fx.id, view: view, seed: seed);
       }
     }
     return null;
@@ -569,8 +570,7 @@ class ViewerStage extends StatelessWidget {
                       ValueListenableBuilder<int>(
                         valueListenable: uiState.playheadFrame,
                         builder: (context, frame, _) => ViewerRotoLayer(
-                          active:
-                              uiState.tools.tool.group == ToolGroup.roto,
+                          active: uiState.tools.tool.group == ToolGroup.roto,
                           tool: uiState.tools.tool,
                           state: state,
                           uiState: uiState,
@@ -1307,7 +1307,7 @@ class ViewerTag extends StatelessWidget {
                 borderRadius: BorderRadius.circular(t.tokens.controlRadius),
               ),
               child: Text(
-                name.toUpperCase(),
+                t.kickerCase(name),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: t.kicker.copyWith(

@@ -62,6 +62,7 @@ import '../widgets/curve_editor.dart';
 import 'effect_param_row_frb.dart';
 import 'graph_panel.dart' show drivenParamsOf, graphCompById;
 import 'camera_track_display_frb.dart';
+import 'plane_display_frb.dart';
 import 'planar_track_display_frb.dart';
 import 'levels_display_frb.dart';
 import 'roto_display_frb.dart';
@@ -175,8 +176,7 @@ class _EffectControlsPanelFrbState extends State<EffectControlsPanelFrb> {
     } catch (_) {
       return;
     }
-    applyShaderSource(
-        layer: layer, effect: effect, source: text, origin: path);
+    applyShaderSource(layer: layer, effect: effect, source: text, origin: path);
     if (mounted) context.read<LumitUiState>().model.refresh();
   }
 
@@ -342,9 +342,7 @@ class _EffectControlsPanelFrbState extends State<EffectControlsPanelFrb> {
 
   bool _copyClaim() {
     final ui = _boundUi;
-    if (!mounted ||
-        ui == null ||
-        ui.activePanel != Panel.effectControls) {
+    if (!mounted || ui == null || ui.activePanel != Panel.effectControls) {
       return _priorCopyClaim?.call() ?? false;
     }
     return _copyPickedEffects(ui) || (_priorCopyClaim?.call() ?? false);
@@ -352,9 +350,7 @@ class _EffectControlsPanelFrbState extends State<EffectControlsPanelFrb> {
 
   bool _pasteClaim() {
     final ui = _boundUi;
-    if (!mounted ||
-        ui == null ||
-        ui.activePanel != Panel.effectControls) {
+    if (!mounted || ui == null || ui.activePanel != Panel.effectControls) {
       return _priorPasteClaim?.call() ?? false;
     }
     return _pastePickedEffects(ui) || (_priorPasteClaim?.call() ?? false);
@@ -362,9 +358,7 @@ class _EffectControlsPanelFrbState extends State<EffectControlsPanelFrb> {
 
   bool _deleteClaim() {
     final ui = _boundUi;
-    if (!mounted ||
-        ui == null ||
-        ui.activePanel != Panel.effectControls) {
+    if (!mounted || ui == null || ui.activePanel != Panel.effectControls) {
       return _priorDeleteClaim?.call() ?? false;
     }
     return _deletePickedEffects(ui) || (_priorDeleteClaim?.call() ?? false);
@@ -878,8 +872,8 @@ class _EffectControlsPanelFrbState extends State<EffectControlsPanelFrb> {
                       // text layer's words are the first thing you want when
                       // you select one.
                       SourceRowsFrb(
-                        key:
-                            ValueKey<String>('src-card-${layer.internallayerId}'),
+                        key: ValueKey<String>(
+                            'src-card-${layer.internallayerId}'),
                         layer: layer,
                         onChanged: ui.model.refresh,
                         open: _isOpen('source'),
@@ -903,7 +897,8 @@ class _EffectControlsPanelFrbState extends State<EffectControlsPanelFrb> {
                         ),
                       ),
                       _TransformSection(
-                        key: ValueKey<String>('tf-card-${layer.internallayerId}'),
+                        key: ValueKey<String>(
+                            'tf-card-${layer.internallayerId}'),
                         layer: layer,
                         comp: comp,
                         transform: info.transform,
@@ -935,7 +930,8 @@ class _EffectControlsPanelFrbState extends State<EffectControlsPanelFrb> {
                     // Its rows listen to the playhead one at a time, so the card
                     // itself does not have to.
                     TextAnimatorRowsFrb(
-                      key: ValueKey<String>('anim-card-${layer.internallayerId}'),
+                      key: ValueKey<String>(
+                          'anim-card-${layer.internallayerId}'),
                       layer: layer,
                       onChanged: ui.model.refresh,
                       comp: comp,
@@ -978,8 +974,8 @@ class _EffectControlsPanelFrbState extends State<EffectControlsPanelFrb> {
                       // same card, and only where it is *listed* changes. The
                       // indices stay stack indices, which is what keeps a drag
                       // within the group a reorder of the chain.
-                      for (final index in _stackIndices(info.effects,
-                          audio: false))
+                      for (final index
+                          in _stackIndices(info.effects, audio: false))
                         _effectCard(context, ui, comp, layer, info, index),
                       if (_stackIndices(info.effects, audio: true)
                           case final rack when rack.isNotEmpty) ...[
@@ -1415,7 +1411,7 @@ class _Header extends StatelessWidget {
               onPressed: () => showAddEffectMenu(buttonContext, onAdd),
               // Add effect is a container label like every other kicker, so the
               // capitals live here rather than in the arb file.
-              child: Text(l10n.addEffect.toUpperCase(),
+              child: Text(t.kickerCase(l10n.addEffect),
                   style: t.kicker.copyWith(color: t.textSecondary)),
             ),
           ),
@@ -1438,8 +1434,7 @@ class _Header extends StatelessWidget {
 /// provenance: Lumit's own audio effects and a hosted plugin file under the
 /// one Audio key, and a menu that asked where an entry came from would offer
 /// half of them.
-Future<void> showAddEffectMenu(
-    BuildContext context, ValueChanged<String> onAdd,
+Future<void> showAddEffectMenu(BuildContext context, ValueChanged<String> onAdd,
     {String? category}) async {
   final box = context.findRenderObject();
   if (box is! RenderBox) return;
@@ -1796,8 +1791,7 @@ class _EffectSection extends StatelessWidget {
           info.name,
           effectId: id,
           values: {
-            for (final p in info.values)
-              p.id: stagedValue(id, p.id) ?? p.value,
+            for (final p in info.values) p.id: stagedValue(id, p.id) ?? p.value,
           },
           comp: comp,
           layer: layer,
@@ -1897,9 +1891,7 @@ class _EffectSection extends StatelessWidget {
         // not doing anything (docs/12 §1, §2.3). An effect that is behaving
         // draws none of this.
         if (effectBadgeRow(context,
-                id: '$id',
-                reason: info.badgeReason,
-                detail: info.badgeDetail)
+                id: '$id', reason: info.badgeReason, detail: info.badgeDetail)
             case final badge?)
           badge,
         if (displayAt(playheadFrame) != null)
@@ -2568,6 +2560,30 @@ Widget? customEffectDisplay(
           layer: layer,
           effectId: effectId,
           playheadFrame: playheadFrame,
+          onChanged: onChanged,
+          pressed: pressed,
+        ),
+      // Depth's is a status about a shot read by a model: how far the reading
+      // covers, and what read it. Filed under this instance, like the Roto
+      // brush's and for the same reason: two of them on one clip on different
+      // models are two answers, not one.
+      'depth' => PlaneDisplayFrb(
+          key: ValueKey<String>('fx-depth-display-$effectId'),
+          card: PlaneCard.depth,
+          layer: layer,
+          effectId: effectId,
+          onChanged: onChanged,
+          pressed: pressed,
+        ),
+      // Remove background's is the same card, because it is the same job: a
+      // model reading a shot a frame at a time and filing what it found. The
+      // answer at the end of it is a matte rather than a depth, which is the
+      // one word between them.
+      'remove_background' => PlaneDisplayFrb(
+          key: ValueKey<String>('fx-remove-background-display-$effectId'),
+          card: PlaneCard.matte,
+          layer: layer,
+          effectId: effectId,
           onChanged: onChanged,
           pressed: pressed,
         ),

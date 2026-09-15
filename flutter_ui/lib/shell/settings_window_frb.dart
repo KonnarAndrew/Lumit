@@ -49,13 +49,17 @@ import 'package:provider/provider.dart';
 
 import '../icons/lumit_icon.dart' as glyph;
 import '../icons/lumit_icons.dart';
+import '../l10n/engine_labels.dart' show addonTask;
 import '../l10n/strings.dart';
+import '../state/addons.dart';
+import '../state/external_links.dart';
 import '../state/file_dialogs.dart';
 import '../state/keymap.dart';
 import '../state/settings.dart';
 import '../state/updates.dart';
 import '../state/workspace.dart';
 import '../theme/custom_theme.dart';
+import '../icons/icon_style.dart';
 import '../theme/theme.dart';
 import '../theme/theme_file.dart';
 import '../widgets/controls.dart';
@@ -147,6 +151,7 @@ enum SettingsPage {
   audio,
   autosave,
   export,
+  addons,
   previewAndCache,
   shortcuts;
 
@@ -161,23 +166,29 @@ enum SettingsPage {
         SettingsPage.audio => l10n.settingsPageAudio,
         SettingsPage.autosave => l10n.settingsPageAutosave,
         SettingsPage.export => l10n.settingsPageExport,
+        SettingsPage.addons => l10n.settingsPageAddons,
         SettingsPage.previewAndCache => l10n.settingsPagePreviewAndCache,
         SettingsPage.shortcuts => l10n.settingsPageShortcuts,
       };
 }
 
-Future<void> showSettingsWindowFrb(BuildContext context) =>
+/// Open Settings, on [initialPage] when somewhere else has a reason to send the
+/// user to a particular one (an effect whose addon is missing, say).
+Future<void> showSettingsWindowFrb(BuildContext context,
+        {SettingsPage initialPage = SettingsPage.general}) =>
     showLumitModal<void>(
       context: context,
       id: 'settings',
       initialSize: settingsWindowSize,
       minSize: settingsMinSize,
-      builder: (close) => _SettingsWindow(onClose: () => close(null)),
+      builder: (close) =>
+          _SettingsWindow(onClose: () => close(null), initialPage: initialPage),
     );
 
 class _SettingsWindow extends StatefulWidget {
   final VoidCallback onClose;
-  const _SettingsWindow({required this.onClose});
+  final SettingsPage initialPage;
+  const _SettingsWindow({required this.onClose, required this.initialPage});
 
   @override
   State<_SettingsWindow> createState() => _SettingsWindowState();
@@ -190,7 +201,17 @@ class _SettingsWindow extends StatefulWidget {
 enum CacheScope { everywhere, thisProject }
 
 class _SettingsWindowState extends State<_SettingsWindow> {
-  SettingsPage _page = SettingsPage.general;
+  late SettingsPage _page = widget.initialPage;
+
+  @override
+  void initState() {
+    super.initState();
+    // A page that reads something on entry has to be given its entry, and that
+    // cannot happen while the first frame is being built.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _showPage(widget.initialPage);
+    });
+  }
 
   /// What the title strip's search field holds. Empty shows everything.
   String _query = '';
@@ -258,6 +279,13 @@ class _SettingsWindowState extends State<_SettingsWindow> {
       // over when the page it belongs to comes forward.
       if (page == SettingsPage.shortcuts) _keymapState()?.query = _query;
     });
+    // Outside the setState above because the service notifies as it reads, and
+    // a setState inside a setState is a rebuild asked for twice.
+    if (page == SettingsPage.addons) {
+      _watchAddons();
+    } else {
+      _unwatchAddons();
+    }
     if (page == SettingsPage.previewAndCache) {
       _perfTimer ??= Timer.periodic(
           const Duration(seconds: 1), (_) => setState(_pollPerf));
@@ -415,7 +443,7 @@ class _SettingsWindowState extends State<_SettingsWindow> {
         padding: const EdgeInsets.symmetric(horizontal: 14),
         child: Row(
           children: [
-            Text(l10n.settingsTitle.toUpperCase(), style: t.kickerOn),
+            Text(t.kickerCase(l10n.settingsTitle), style: t.kickerOn),
             const Spacer(),
             SizedBox(
               width: settingsSearchWidth,
@@ -547,6 +575,7 @@ class _SettingsWindowState extends State<_SettingsWindow> {
       SettingsPage.audio => _audioPage(t, ui),
       SettingsPage.autosave => _autosavePage(t, ui),
       SettingsPage.export => _exportPage(t),
+      SettingsPage.addons => _addonsPage(t, ui),
       SettingsPage.previewAndCache => _performance(t, ui),
       SettingsPage.shortcuts => _keymap(t, ui),
     };
@@ -637,7 +666,7 @@ class _SettingsWindowState extends State<_SettingsWindow> {
       case SettingsPage.appearance:
         workspace.setScheme(LumitColorScheme.dark);
         workspace.setAccent(null);
-        ui.setShape(ThemeShape.sharp);
+        ui.setShape(ThemeShape.studio);
         workspace.setAnimationLevel(AnimationLevel.all);
         workspace.setThemedScopes(false);
         workspace.setThemedEffectGraphs(false);
@@ -648,6 +677,9 @@ class _SettingsWindowState extends State<_SettingsWindow> {
         settings.waveformsFromBottom = shipped.waveformsFromBottom;
         settings.compact = shipped.compact;
         settings.chromeLabels = shipped.chromeLabels;
+        settings.room = shipped.room;
+        settings.toolBarPosition = shipped.toolBarPosition;
+        settings.rangeSliders = shipped.rangeSliders;
         workspace.recompose();
         workspace.save();
       case SettingsPage.timeline:
@@ -679,6 +711,10 @@ class _SettingsWindowState extends State<_SettingsWindow> {
           destination: exportDestinationAsk,
           folder: '',
         ));
+      case SettingsPage.addons:
+        // Nothing on this page is a setting: it lists what is installed and
+        // offers to fetch more, and neither is Reset's to undo.
+        break;
       case SettingsPage.previewAndCache:
         _perfEdit(() {
           // The shipped default, read from the one place it is written down,
@@ -831,8 +867,8 @@ class _SettingsWindowState extends State<_SettingsWindow> {
                   options: ui.workspace.themeChoices,
                   width: _ddWide,
                   label: (c) => c.label,
-                  // Dark, Light, then the user's own: seven built-ins and a
-                  // growing list of custom themes is a long flat menu, and
+                  // Dark, Light, then the user's own: thirty-one built-ins and
+                  // a growing list of custom themes is a long flat menu, and
                   // light/dark is the first thing anyone is choosing by.
                   group: (c) => c.group,
                   onChanged: (c) => setState(() => ui.workspace.choose(c)),
@@ -874,6 +910,32 @@ class _SettingsWindowState extends State<_SettingsWindow> {
               description: _themeMessage ?? ''),
           _row(t, l10n.settingsAccent, _accentSwatches(t, ui)),
           _row(t, l10n.settingsShape, _shapeChips(t, ui)),
+          // Desk's rooms are colour schemes, and this row is the one tap that
+          // picks one: choosing Desk leaves the scheme where it was.
+          if (ui.shape == ThemeShape.desk)
+            _row(t, l10n.settingsDeskRooms, _deskRoomChips(t, ui)),
+          // Only Lantern has a room to choose; the other two shapes never
+          // draw one, so the row would be a dial wired to nothing.
+          if (ui.shape == ThemeShape.lantern)
+            _row(
+              t,
+              l10n.settingsRoom,
+              _dropdown<LanternRoom>(
+                key: 'settings-lantern-room',
+                value: settings.room,
+                options: LanternRoom.values,
+                label: (room) => switch (room) {
+                  LanternRoom.auto => l10n.styleChoice,
+                  LanternRoom.day => l10n.roomDay,
+                  LanternRoom.night => l10n.roomNight,
+                },
+                onChanged: (room) => setState(() {
+                  settings.room = room;
+                  ui.workspace.recompose();
+                  ui.workspace.save();
+                }),
+              ),
+            ),
         ],
       ),
       (
@@ -983,15 +1045,110 @@ class _SettingsWindowState extends State<_SettingsWindow> {
               value: settings.viewerBars,
               options: ViewerBars.values,
               label: (bars) => switch (bars) {
+                ViewerBars.auto => l10n.styleChoice,
                 ViewerBars.split => l10n.viewerBarsSplit,
                 ViewerBars.top => l10n.viewerBarsTop,
                 ViewerBars.bottom => l10n.viewerBarsBottom,
+                ViewerBars.deck => l10n.viewerBarsDeck,
               },
               width: _ddWide,
               onChanged: (bars) => setState(() {
                 settings.viewerBars = bars;
                 ui.workspace.settingsChanged();
               }),
+            ),
+          ),
+          // Where the toolbar stands. Machine-local like the scale: it is a
+          // fact about the person's monitor, not about a workspace.
+          _row(
+            t,
+            l10n.settingsToolBarPosition,
+            _dropdown<ToolBarPosition>(
+              key: 'settings-tool-bar-position',
+              value: settings.toolBarPosition,
+              options: ToolBarPosition.values,
+              label: (position) => switch (position) {
+                ToolBarPosition.auto => l10n.styleChoice,
+                ToolBarPosition.top => l10n.toolBarTop,
+                ToolBarPosition.left => l10n.toolBarLeft,
+              },
+              onChanged: (position) => setState(() {
+                settings.toolBarPosition = position;
+                ui.workspace.settingsChanged();
+              }),
+            ),
+          ),
+          _flag(t, 'settings-range-sliders', l10n.settingsRangeSliders,
+              value: settings.rangeSliders, set: (on) {
+            settings.rangeSliders = on;
+            ui.workspace.settingsChanged();
+          }),
+          _flag(t, 'settings-command-box', l10n.settingsCommandBox,
+              value: settings.commandBox, set: (on) {
+            settings.commandBox = on;
+            ui.workspace.settingsChanged();
+          }),
+          _row(
+            t,
+            l10n.settingsIconSet,
+            _dropdown<IconSet>(
+              key: 'settings-icon-set',
+              value: settings.iconSet,
+              options: IconSet.values,
+              label: (set) => switch (set) {
+                IconSet.styleChoice => l10n.styleChoice,
+                IconSet.regular => l10n.iconSetRegular,
+                IconSet.engraved => l10n.iconSetEngraved,
+                IconSet.bold => l10n.iconSetBold,
+              },
+              onChanged: (set) => setState(() {
+                settings.iconSet = set;
+                ui.workspace.recompose();
+                ui.workspace.save();
+              }),
+            ),
+          ),
+          // A person's own icons: one SVG per icon, named after it, in the
+          // folder beside the workspace store. Read at launch and on demand.
+          _row(
+            t,
+            l10n.settingsIconsFolder,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    HouseButton(
+                      key: const ValueKey('settings-icons-reload'),
+                      small: true,
+                      onPressed: () => setState(() {
+                        IconStyle.reload();
+                        ui.workspace.recompose();
+                      }),
+                      child: Text(l10n.reloadIcons),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      l10n.iconsReplaced(IconStyle.overrideCount),
+                      style: t.small.copyWith(color: t.textMuted),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                // The path is long; it takes a fixed slot and trims its end.
+                SizedBox(
+                  width: 240,
+                  child: Text(
+                    IconStyle.folder ?? '',
+                    key: const ValueKey('settings-icons-folder'),
+                    style: t.small.copyWith(color: t.textMuted),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1034,10 +1191,10 @@ class _SettingsWindowState extends State<_SettingsWindow> {
     ]);
   }
 
-  /// Sharp or Round, as the drawing draws it: two kicker chips side by side,
-  /// the one in force outlined. Not an accent fill — §3.1 spends the accent on
-  /// the tick beside the page name, and a second accent in the same window
-  /// would make neither of them mean anything.
+  /// Studio, Desk or Lantern, as the drawing draws it: kicker chips side by
+  /// side, the one in force outlined. Not an accent fill, because §3.1 spends
+  /// the accent on the tick beside the page name, and a second accent in the
+  /// same window would make neither of them mean anything.
   Widget _shapeChips(LumitTheme t, LumitUiState ui) => Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1051,11 +1208,42 @@ class _SettingsWindowState extends State<_SettingsWindow> {
                 frameless: ui.shape != shape,
                 onPressed: () => setState(() => ui.setShape(shape)),
                 child: Text(
-                  (shape == ThemeShape.sharp
-                          ? l10n.cornersSharp
-                          : l10n.cornersRound)
-                      .toUpperCase(),
+                  t.kickerCase(switch (shape) {
+                    ThemeShape.studio => l10n.shapeStudio,
+                    ThemeShape.desk => l10n.shapeDesk,
+                    ThemeShape.lantern => l10n.shapeLantern,
+                  }),
                   style: ui.shape == shape ? t.kickerOn : t.kicker,
+                ),
+              ),
+            ),
+          ],
+        ],
+      );
+
+  /// Grey room or Graphite, drawn like the shape chips with the scheme in
+  /// force outlined. A chip sets the scheme and nothing else.
+  Widget _deskRoomChips(LumitTheme t, LumitUiState ui) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final (key, scheme) in const [
+            ('settings-desk-room-grey', LumitColorScheme.greyRoom),
+            ('settings-desk-room-graphite', LumitColorScheme.graphite),
+          ]) ...[
+            if (scheme != LumitColorScheme.greyRoom) const SizedBox(width: 2),
+            SizedBox(
+              height: settingsControlHeight,
+              child: HouseButton(
+                key: ValueKey<String>(key),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                frameless: ui.workspace.colorScheme != scheme,
+                onPressed: () =>
+                    setState(() => ui.workspace.setScheme(scheme)),
+                child: Text(
+                  t.kickerCase(scheme.label),
+                  style: ui.workspace.colorScheme == scheme
+                      ? t.kickerOn
+                      : t.kicker,
                 ),
               ),
             ),
@@ -1598,7 +1786,8 @@ class _SettingsWindowState extends State<_SettingsWindow> {
                 hint: l10n.settingsExportFilenameHint(
                     exportTokenComp, exportTokenDate),
                 submitOnLostFocus: true,
-                onSubmitted: (text) => _setExportDefaults(template: text.trim()),
+                onSubmitted: (text) =>
+                    _setExportDefaults(template: text.trim()),
               ),
             ),
           ),
@@ -1706,8 +1895,310 @@ class _SettingsWindowState extends State<_SettingsWindow> {
   Future<void> _pickExportFolder() async {
     final folder = await pickFolder();
     if (folder == null || !mounted) return;
-    _setExportDefaults(
-        destination: exportDestinationFolder, folder: folder);
+    _setExportDefaults(destination: exportDestinationFolder, folder: folder);
+  }
+
+  // ---- Addons --------------------------------------------------------------
+  //
+  // Three sections: the model runtime every pack needs, what is installed, and
+  // what the catalogue offers (docs/impl/addons.md §5). Everything drawn here
+  // is a value the service already holds, so the page crosses the bridge only
+  // in `_showPage` and in the buttons themselves.
+
+  /// The service the page draws, reached the way the keymap is because
+  /// `_showPage` has no `ui` to hand.
+  AddonService _addonService() =>
+      Provider.of<LumitUiState>(context, listen: false).addons;
+
+  /// The service while this page is up, so its progress reaches the rows.
+  AddonService? _addons;
+
+  void _watchAddons() {
+    final service = _addonService();
+    if (!identical(_addons, service)) {
+      _addons?.removeListener(_addonsChanged);
+      service.addListener(_addonsChanged);
+      _addons = service;
+    }
+    // The page's one engine read: the scan, the runtime and the folder. Every
+    // other reading it draws came with this one.
+    service.refresh();
+  }
+
+  void _unwatchAddons() {
+    _addons?.removeListener(_addonsChanged);
+    _addons = null;
+  }
+
+  void _addonsChanged() {
+    if (mounted) setState(() {});
+  }
+
+  List<Widget> _addonsPage(LumitTheme t, LumitUiState ui) {
+    final service = ui.addons;
+    return _sections(t, [
+      (l10n.settingsGroupAddonRuntime, [_runtimeRow(t, service)]),
+      (
+        l10n.settingsGroupAddonsInstalled,
+        [
+          for (final pack in service.packs) _packRow(t, service, pack),
+          if (service.packs.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(settingsRowPadding, 4,
+                  settingsRowPadding, settingsSectionGap),
+              child: Text(
+                l10n.settingsAddonsNoneInstalled,
+                key: const ValueKey('settings-addons-none'),
+                style: t.small.copyWith(color: t.textMuted),
+              ),
+            ),
+        ]
+      ),
+      (
+        l10n.settingsGroupAddonsAvailable,
+        [
+          _row(
+            t,
+            l10n.settingsAddonsCatalogue,
+            HouseButton(
+              key: const ValueKey('settings-addon-check'),
+              small: true,
+              onPressed:
+                  service.busy ? null : () => unawaited(service.check()),
+              child: Text(l10n.settingsAddonsCheck, style: t.small),
+            ),
+            description: _addonsMessage(service),
+          ),
+          for (final offer in service.available) _offerRow(t, service, offer),
+          _row(
+            t,
+            l10n.settingsAddonsInstallFromFile,
+            HouseButton(
+              key: const ValueKey('settings-addon-install-from-file'),
+              small: true,
+              onPressed: service.busy
+                  ? null
+                  : () => unawaited(_installAddonFromFile(service)),
+              child: Text(l10n.chooseEllipsis, style: t.small),
+            ),
+          ),
+          _row(
+            t,
+            l10n.settingsAddonsFolder,
+            HouseButton(
+              key: const ValueKey('settings-addon-show-folder'),
+              small: true,
+              onPressed: service.folder == null
+                  ? null
+                  : () => revealInFolder(path: service.folder!),
+              child: Text(l10n.settingsAddonsShow, style: t.small),
+            ),
+            description: service.folder ?? '',
+          ),
+        ]
+      ),
+    ]);
+  }
+
+  /// The runtime: what state it is in, and the one thing worth doing about it.
+  ///
+  /// It is the largest download on the page, so while it is coming down its row
+  /// carries the bar and the Cancel every other row does. The Available section
+  /// never lists it, and without this there would be minutes of nothing.
+  Widget? _runtimeRow(LumitTheme t, AddonService service) {
+    final installed = service.runtimeInstalled;
+    final offered = service.runtimeOffered;
+    final title = installed != null && installed.name.isNotEmpty
+        ? installed.name
+        : l10n.settingsAddonsRuntime;
+    final coming = service.working != null &&
+        service.working == (installed?.id ?? offered?.id);
+    return _row(
+      t,
+      title,
+      Row(
+        mainAxisSize: MainAxisSize.min,
+        children: coming
+            ? _comingDown(t, service)
+            : installed == null
+                ? [
+                    _licenceLink(t, offered),
+                    HouseButton(
+                      key: const ValueKey('settings-addon-runtime-install'),
+                      small: true,
+                      onPressed: service.busy || offered == null
+                          ? null
+                          : () => unawaited(service.install(offered.id)),
+                      child: Text(l10n.settingsAddonsInstall, style: t.small),
+                    ),
+                  ]
+                : [
+                    _licenceLink(t, installed),
+                    HouseButton(
+                      key: const ValueKey('settings-addon-runtime-load'),
+                      small: true,
+                      onPressed: service.busy ||
+                              service.runtime.state == RuntimeState.loaded
+                          ? null
+                          : () => unawaited(service.runtimeLoad()),
+                      child: Text(l10n.settingsAddonsLoad, style: t.small),
+                    ),
+                    const SizedBox(width: 8),
+                    HouseButton(
+                      key: const ValueKey('settings-addon-runtime-remove'),
+                      small: true,
+                      frameless: true,
+                      onPressed: service.busy
+                          ? null
+                          : () => service.remove(installed.id),
+                      child: Text(l10n.settingsAddonsRemove, style: t.small),
+                    ),
+                  ],
+      ),
+      description: _runtimeLine(service.runtime),
+    );
+  }
+
+  /// The bar and the Cancel a row wears while its addon is coming down.
+  List<Widget> _comingDown(LumitTheme t, AddonService service) => [
+        SizedBox(
+          width: 110,
+          child: HouseProgressBar(fraction: service.fraction, height: 6),
+        ),
+        const SizedBox(width: 8),
+        HouseButton(
+          key: const ValueKey('settings-addon-cancel'),
+          small: true,
+          frameless: true,
+          onPressed: service.cancel,
+          child: Text(l10n.cancel, style: t.small),
+        ),
+      ];
+
+  /// The way to read an addon's licence: its own page, in the machine's own
+  /// browser. The name of the licence is on the description line beside the
+  /// size; this is the other half of what §4 promises. Nothing at all when the
+  /// manifest gives no address.
+  Widget _licenceLink(LumitTheme t, Addon? addon) {
+    if (addon == null || addon.licenceUrl.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: HouseButton(
+        key: ValueKey<String>('settings-addon-licence-${addon.id}'),
+        small: true,
+        frameless: true,
+        onPressed: () => unawaited(openExternalLink(addon.licenceUrl)),
+        child: Text(l10n.settingsAddonsLicence, style: t.small),
+      ),
+    );
+  }
+
+  /// What the runtime is doing, in one line. A library that would not load says
+  /// so in its own words, which is the one place they are shown untranslated.
+  String _runtimeLine(RuntimeStatus status) => switch (status.state) {
+        RuntimeState.missing => l10n.settingsAddonsStateMissing,
+        RuntimeState.present => l10n.settingsAddonsStatePresent,
+        RuntimeState.loaded =>
+          l10n.settingsAddonsStateLoaded(status.provider, status.version),
+        RuntimeState.failed =>
+          '${l10n.settingsAddonsStateFailed} ${status.detail}'.trim(),
+      };
+
+  /// One installed pack: its licence, size and what it does, and Remove.
+  Widget? _packRow(LumitTheme t, AddonService service, Addon pack) => _row(
+        t,
+        pack.name.isEmpty ? pack.id : pack.name,
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (pack.broken) ...[
+              Text(l10n.settingsAddonsBroken,
+                  style: t.small.copyWith(color: t.warning)),
+              const SizedBox(width: 8),
+            ],
+            _licenceLink(t, pack),
+            HouseButton(
+              key: ValueKey<String>('settings-addon-remove-${pack.id}'),
+              small: true,
+              frameless: true,
+              onPressed: service.busy ? null : () => service.remove(pack.id),
+              child: Text(l10n.settingsAddonsRemove, style: t.small),
+            ),
+          ],
+        ),
+        description: l10n.settingsAddonsPackDetail(pack.licence,
+            _bytes(BigInt.from(pack.sizeBytes)), addonTask(pack.task)),
+      );
+
+  /// One pack the catalogue offers. While it is coming down the row is the bar
+  /// and a Cancel; every other button on the page is unpressable meanwhile.
+  Widget? _offerRow(LumitTheme t, AddonService service, Addon offer) {
+    final coming = service.working == offer.id;
+    final size = _bytes(BigInt.from(offer.sizeBytes));
+    return _row(
+      t,
+      offer.name.isEmpty ? offer.id : offer.name,
+      Row(
+        mainAxisSize: MainAxisSize.min,
+        children: coming
+            ? _comingDown(t, service)
+            : [
+                _licenceLink(t, offer),
+                HouseButton(
+                  key: ValueKey<String>('settings-addon-install-${offer.id}'),
+                  small: true,
+                  onPressed: service.busy || service.runtimeInstalled == null
+                      ? null
+                      : () => unawaited(service.install(offer.id)),
+                  child: Text(_offerLabel(service, offer), style: t.small),
+                ),
+              ],
+      ),
+      // A pack whose training set carries terms of its own says so here, in the
+      // catalogue's own words, before anything is fetched (docs/12 §6).
+      description: offer.notes.isEmpty
+          ? l10n.settingsAddonsOfferDetail(offer.licence, size)
+          : l10n.settingsAddonsOfferTerms(offer.licence, size, offer.notes),
+    );
+  }
+
+  /// What an offer's button reads: nothing can be installed before the runtime
+  /// is, and a pack already here at another version is an update.
+  String _offerLabel(AddonService service, Addon offer) {
+    if (service.runtimeInstalled == null) return l10n.settingsAddonsNeedsRuntime;
+    return service.installedById(offer.id) == null
+        ? l10n.settingsAddonsInstall
+        : l10n.settingsAddonsUpdate;
+  }
+
+  /// The line under the Check row: why the last press did not work, or where
+  /// the catalogue has got to.
+  String _addonsMessage(AddonService service) {
+    final why = service.failure;
+    if (why != null) return _addonFailure(why);
+    if (service.entries.isEmpty) return l10n.settingsAddonsNotChecked;
+    if (service.available.isEmpty) return l10n.settingsAddonsAllInstalled;
+    return '';
+  }
+
+  String _addonFailure(AddonFailure why) => switch (why) {
+        AddonFailure.network => l10n.settingsAddonsFailedNetwork,
+        AddonFailure.catalogue => l10n.settingsAddonsFailedCatalogue,
+        AddonFailure.manifest => l10n.settingsAddonsFailedManifest,
+        AddonFailure.unsupported => l10n.settingsAddonsFailedUnsupported,
+        AddonFailure.incomplete => l10n.settingsAddonsFailedIncomplete,
+        AddonFailure.checksum => l10n.settingsAddonsFailedChecksum,
+        AddonFailure.busy => l10n.settingsAddonsFailedBusy,
+        AddonFailure.refused => l10n.settingsAddonsFailedRefused,
+        AddonFailure.removeRefused => l10n.settingsAddonsFailedRemove,
+      };
+
+  Future<void> _installAddonFromFile(AddonService service) async {
+    final manifest = await pickAddonManifest();
+    if (manifest == null || !mounted) return;
+    await service.installFromFile(manifest);
   }
 
   // ---- Shortcuts -----------------------------------------------------------
@@ -1913,6 +2404,7 @@ class _SettingsWindowState extends State<_SettingsWindow> {
   @override
   void dispose() {
     _perfTimer?.cancel();
+    _unwatchAddons();
     _search?.dispose();
     _filenameTemplate.dispose();
     _scroll.dispose();

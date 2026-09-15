@@ -188,9 +188,32 @@ keep their taller bands, which is the point of those two.
 
 ### 1.7 The toolbar
 
-A single **toolbar** spans the window immediately below the menu bar and above the dock. It
-is chrome, not a panel: it cannot be closed, moved, tabbed or floated, and it is the same
-strip whatever workspace is active.
+A single **toolbar** spans the window immediately below the menu bar and above the dock or,
+under Left, stands as a rail down the left edge beside the dock. It is chrome, not a panel:
+it cannot be closed, tabbed or floated, and it is the same toolbar whatever workspace is
+active.
+
+**Where it stands is a setting: Settings, Appearance, Toolbar position, Top or Left.**
+Machine-local, like UI scale, and never workspace state: it is a fact about the person and
+their monitor rather than about an arrangement, so switching workspace MUST NOT move the
+tools out from under the hand. The default is **the style's choice**: the rail under Desk,
+the strip under Studio and Lantern; a person's own pick holds under every style. Both positions carry
+the same toolbar: every group below in the same order, the same flyouts, chords, cycling and
+disabled-and-labelled treatment, and the same tool options area. Under **Left** the thirteen
+groups and the snapping switch stand on a **44px rail** flush to the window's left edge,
+one cell each (44 tall under Desk's module, 36 under Studio and Lantern), a seam after the six
+simple pointer tools, the flyout opening to the **right** of the rail; the **tool options and
+the workspace strip move onto the top line beside the menus**, because a rail has no room for
+a number field or six words, and the strip above the dock is not shown. The strip under Top
+is 30 tall under Studio and 32 under Desk; under Lantern it is a 44 band carrying 32 pills.
+The top line is `DensityTokens.menuBar`: 26 under Studio, 28 under Desk, 40 under Lantern.
+
+**Under Lantern the row is three pills, not eighteen buttons**, standing in the room rather
+than welded under the menu bar: the **tool pill**, every tool in one capsule with the seams
+inside it and the snapping switch at its end, only the armed one filled; the **tool options
+pill** beside it, drawn deaf and labelled while the armed tool has no options rather than
+vanishing, so the row keeps its width as tools are cycled; and the **workspace pill** at the
+far end. Under Left the tool pill runs down the rail and the other two ride the top band.
 
 **What it holds, left to right.**
 
@@ -214,7 +237,7 @@ strip whatever workspace is active.
 The right-hand end carries the **tool options** area (below) and the **workspace strip** §1.4
 requires in the window chrome.
 
-**The strip is 30px tall and its buttons are 44px wide.** 15-DESIGN §7.2's hit extent
+**The strip is 30px tall under Studio and its buttons are 44px wide.** 15-DESIGN §7.2's hit extent
 is kept *across* the row, which is what the strip is read and aimed by, and given up down the
 page: the strip runs the full width of the window, so a 44px band of mostly empty chrome is
 height taken from the panels underneath for nothing.
@@ -388,10 +411,19 @@ anywhere, including other monitors.
   zoom` — which is where degradation is stated (item 9), and the preview progress bar,
   which is nothing at all until a frame is genuinely waited on.
 
-**Settings → Appearance → Viewer → Viewer bars** chooses between the three arrangements:
-the drawing's **split**, or **one bar at the top** or **at the bottom**,
+**Settings → Appearance → Viewer → Viewer bars** chooses between four arrangements, with
+**the style's choice** as the default (split under Studio, the deck under Desk and Lantern):
+the drawing's **split**; **one bar at the top** or **at the bottom**,
 which gathers the panel's kicker, the three pickers and everything the bottom bar carries
-onto a single strip in that same order. No control is added or dropped by the choice.
+onto a single strip in that same order; and the **deck**, which keeps the ways of looking
+above the picture and puts everything about playing in a strip under it. Split, top and
+bottom add and drop nothing. **The deck adds four things**: a **frame count** beside the
+clock, a **preview mode** picker, a **quality** picker (each its own dropdown, the two
+answers standing apart, §9) and a **cache-ready meter** saying how much of the work area
+is held, with the preview progress bar at the right; under the deck the upper bar no longer
+carries the quality menu, because the deck owns both of its answers. The deck's heights
+and its treatment per shape are 15-DESIGN §12A.6. The loop mode and the audio mute sit on
+the deck (§9).
 
 Every control on either strip keeps the behaviour its item below defines. The items:
 
@@ -1049,9 +1081,16 @@ subject out of a shot, one scribble at a time
   rest of the clip in the surface tone — the status line beneath it, and the **base frame** with
   one button that moves it to the frame on screen. The status is **polled twice a second while a
   propagation is moving and not otherwise**, the Camera track's arrangement.
+- **Seed from** decides what the base frame starts from. On **Strokes**, the scribbles alone,
+  which is every brush until somebody says otherwise. On **Segment**, a tap with the Roto brush
+  tool on the base frame is a **prompt** a segmentation model reads, Alt makes the tap a
+  negative one, and a drag still lays a stroke; the overlay draws the taps as small rings in
+  the success and error tones, and the card counts them beside the strokes. The model is an
+  addon: with none installed the status line says so and sends the reader to the Addons page
+  ([docs/impl/addons.md](impl/addons.md) §6.2).
 - Not built: a scribble that adjusts its own width by dragging, per-stroke deletion from the
-  overlay, and the neural seed proposal
-  ([docs/impl/roto.md](impl/roto.md) §9).
+  overlay, a prompt on any frame but the base, and the model proposing the matte on every
+  frame rather than seeding the first ([docs/impl/roto.md](impl/roto.md) §9).
 
 ### 2.4 Motion paths
 
@@ -1289,11 +1328,11 @@ the band's own row at the ruler's floor — the **cache bar**; then layer lanes.
 - **Work area**: `B` and `N` set start/end at the playhead; drag the ends; double-click the
   band to reset to the full comp (built, TI-9 — the reset writes the engine's own "not
   narrowed", which is what the whole comp *is*). Work area is the preview range and default export range,
-  and playback **loops** it (§10's default loop mode): reaching its end resumes from its
+  and playback **loops** it (§9's default loop mode): reaching its end resumes from its
   start. **The playhead can be parked anywhere and previewed from**: outside the
   work area the loop does not pull it back inside, it previews forward from where it
   stands — before the start it runs into the span and joins the loop, past the end it plays
-  the tail out and stops, returning the playhead as any other stop does (§10). It draws as
+  the tail out and stops, returning the playhead as any other stop does (§9). It draws as
   **one band in `animated`** ([15-DESIGN.md](15-DESIGN.md) §12A.1): the ruler's **second
   row** — it once had the whole height, and desktop testing took that back, a wash
   over the clock making the numbers harder to read — then on behind the cache bar and down
@@ -2418,8 +2457,9 @@ Shows the **effect stack** of the selected layer (tab per recently viewed layer,
   not. (The Timeline's fold-out lists parameters flat and folds neither, because each row
   there is a selectable property path.)
 
-  **Round shape keeps its bubble**: the same rows, wrapped in floating-card chrome.
-  The two shapes differ in chrome, not in layout.
+  **The three shapes keep the rows**: Lantern wraps each section in a card of its own,
+  Desk sets the rows on its module. The shapes differ in chrome, not in layout
+  (15-DESIGN §12).
 
   **Shipped: the closed-range row.** A **Slider** parameter — one whose whole meaning
   lives inside a range, a wipe's Completion being the catalogue's clearest — draws as a
@@ -2429,6 +2469,12 @@ Shows the **effect stack** of the selected layer (tab per recently viewed layer,
   live and commits once on release — and the row keeps every affordance a float row has,
   stopwatch and graph editor included, because the value *is* a float. The range is both the
   travel and the hard bound, so neither grip can leave it and neither can typing.
+  **The track is a setting: Settings, Appearance, Range sliders, on or off**, machine-local,
+  on by default, binding every shape. Off, the number stands alone and the row is exactly
+  as wide as every other row; the number keeps its range, its scrub and its typing. Someone
+  who types and scrubs never touches a track and pays for it on every ranged row; someone
+  shaping a wipe wants it under the hand. Neither is the default for the other, and
+  changing the shape never changes this setting.
 
   **Shipped: the curve editor.** A **Curve** parameter draws as the unit square with
   the spline through its points: **drag a point** to move it, **click the line** to add one
@@ -2670,16 +2716,30 @@ as the dockable **Preview panel**.
   however playback ends, the composition running out included. Settings ▸ Interface ▸
   Editing ▸ *Playhead stays where playback stopped* puts the older behaviour back.
   The exception is a ruler scrub, which stops playback in order to move the playhead (§4.6).
-- **Loop modes**: loop work area (default) / play once / ping-pong. The default holds for
+- **Loop modes** (built): loop work area (default) / play once / ping-pong. The default holds for
   **every** composition, narrowed or not: a comp nobody has set a work area in loops the
   whole of itself, because the whole of itself is what its work area is. There is no
   second behaviour for the untouched comp, and no per-comp memory of which it gets.
+  The mode is a workspace setting, not project data. **The engine plays one leg**: a
+  forward leg from the frame it is given to the composition's last frame, or a reverse
+  leg from that frame down to zero (`play(..., reverse)`). The work-area loop and
+  ping-pong are the **frontend restarting a leg at the span's other end** as the frames
+  arrive: the work-area loop restarts forward at the start on reaching the end; ping-pong
+  starts a reverse leg at end minus one on reaching the end and a forward leg at start
+  plus one on reaching the start, so the turn frame is shown once; play once stops at
+  the end, returning the playhead as any other stop does. **A ping-pong backward leg is
+  silent in this version**: there is no reverse audio, so the sound stops at the turn and
+  starts again with the next forward leg.
 - **Cache status**: a readout of how much of the work area is preview-ready (backed by the
   cache bar), plus a *fill cache* action that renders the work area ahead of playback while
   idle. Lumit has no separate "RAM preview" ritual — playback always plays, using
   whatever is cached and rendering the rest, degrading before dropping; uncached
   playback keeps audio sync by frame-skipping and reports skipped frames in this readout.
-- **Audio mute** toggle.
+- **Audio mute** toggle (built). A **monitor mute**: the device is handed silence while
+  the mix, its clock and the meters carry on, so playback keeps its pace and the Audio
+  panel keeps reading. It is **application state, never a document edit**: it does not
+  save into the project, does not silence an export, holds with no device open, and is
+  not remembered across a launch (starting into silence is the worse surprise).
 - **Quality toggle**: full / draft preview quality (draft maps to the engine's reduced
   quality mode; independent of preview resolution).
 - **Preview mode toggle**: **Cached** (default) / **Realtime**. Realtime renders
@@ -2687,9 +2747,14 @@ as the dockable **Preview panel**.
   rate instead of waiting on cache — the "just play it now" mode for heavy comps. The
   active tier shows in the Viewer's degradation indicator
   ([06-RENDER-PIPELINE.md](06-RENDER-PIPELINE.md) §6.5). This toggle lives here and in
-  Settings → Preview, deliberately **not** in the Viewer bar's resolution dropdown: picking
-  a resolution and picking a mode are different decisions, and the resolution picker stays
-  the default way to work through a project.
+  Settings → Preview. Picking a resolution and picking a mode are different decisions, and
+  the resolution picker stays the default way to work through a project; **the two answers
+  MAY share one menu only when each has its own heading**, which is what the Viewer
+  header's quality menu does (§2.2 item 2), and **on the deck they stand apart**, a preview
+  mode picker beside a separate quality picker. The earlier rule kept the mode out of the
+  resolution dropdown altogether; the code's headed menu won, because a heading over each
+  answer keeps them two decisions on one list, and the deck says the same thing with two
+  controls.
 
 ---
 
@@ -3185,20 +3250,41 @@ travel in the `.lum` and are marked below:
   the UI — the main menu excluded — and reduced motion follows OS or override),
   **Autosave** (interval, copies kept), **Plugins** (search paths, disabled list,
   per-plugin overrides).
+- **Addons**: the optional downloads ([12-PLUGINS.md](12-PLUGINS.md) §6). What is
+  installed, each row carrying its licence, its size and what it does with Remove on the
+  right, then the catalogue's own rows, each with Install or Update; the model runtime's
+  own row, since no pack runs until it is there; a button that asks the official catalogue
+  what else exists, one that installs a pack from a file, and one that opens the folder
+  they are kept in. Machine-local like the files themselves: nothing about an addon
+  travels in the `.lum`.
 
 **The window.** It opens from **Window → Settings…** or **Ctrl/Cmd+comma** — a
 sidebar of pages, each a stack of named sections, each section a card of rows carrying what
 the setting is, a line saying what it does, and its control on the right. Its pages are
 **General** (reset workspace, version and build), **Appearance** (colour scheme with an
 eight-swatch preview beside it, the theme shelf — Duplicate, Rename…, Delete, Import… and
-Export… — corners,
-interface motion, and the Scopes and Viewer toggles — themed scope colours, themed surround,
+Export… — the **Shape**: Studio, Desk or Lantern, under Desk the **Rooms drawn** pair,
+Grey room and Graphite, and under Lantern the **Room**: the style's choice, Day or Night
+(15-DESIGN §12),
+interface motion, UI scale, tooltips, whether the Effect controls panel repeats the
+layer's Source, Transform and Retime rows, off by default since the Timeline's fold-out
+already shows them, and the Scopes and Viewer toggles, themed scope colours, themed surround,
 and whether the Viewer smooths the picture when it is zoomed past 1:1, all three off by
 default: a magnified pixel is a square, because looking at the pixels is what zooming in is
-for), **Interface** (UI scale, tooltips, and whether the Effect controls panel
-repeats the layer's Source, Transform and Retime rows — off by default, since the Timeline's
-fold-out already shows them), and **Performance** (playback mode, quality tier and reset,
-and the RAM and VRAM frame-cache budgets with their readouts and Clear buttons). The two
+for; then in the same Viewer group the **Viewer bars** arrangement: Split, Top, Bottom or
+Deck (§2.2), the **Toolbar position**: Top or Left (§1.7), the **Range sliders** switch
+(§6), the first two the style's choice until a person picks, the switch on by default, a
+**Command box** switch, on by default, for the search well at the right of the top line
+that opens the command palette, an **Icon set** dropdown, the style's choice, Regular,
+Engraved or Bold, which is the weight the whole set is drawn at, and a **Custom icons** row
+naming the folder beside the workspace store where an SVG named after an icon replaces it,
+one file or a whole set, with a Reload button), **Timeline**, **Viewer**, **Audio**,
+**Autosave**, **Export**, **Addons**
+(§6 of [12-PLUGINS.md](12-PLUGINS.md)), **Preview and cache** (playback mode, quality tier
+and reset, and the RAM and VRAM frame-cache budgets with their readouts and Clear buttons) and
+**Shortcuts**, which is the Keymap group under the name the sidebar gives it. The
+**Colour** and **Plugins** groups above have no page yet: they are work still to do, not
+pages hiding under another name. The two
 budgets are **typed and draggable numbers capped at what the machine has** — installed RAM
 and the adapter's dedicated video memory, asked of the engine — rather than a pick from a
 fixed list of sizes.
