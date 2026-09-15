@@ -21,6 +21,7 @@ import 'package:provider/provider.dart';
 
 import '../icons/icons.dart';
 import '../l10n/strings.dart';
+import '../state/comp_time.dart' show sampledScalar, timeOfFrame;
 import '../state/layer_bounds.dart' show shapeContentsRect, textLayerBounds;
 import '../shell/tool_bar_frb.dart';
 import '../state/tools.dart';
@@ -189,13 +190,17 @@ class ViewerStage extends StatelessWidget {
   /// gizmo hit-tests, outlines and drags.
   ///
   /// Built from the read model, so this costs no bridge calls per
-  /// paint. Three kinds are left out on purpose: a Camera has no picture to put
-  /// a box round; a layer whose position is a curve has no single point a drag
-  /// could add to — it would be a box drawn in the wrong place, which is worse
-  /// than none; and **a layer switched off is not on the picture at all**, so
-  /// it gets no wireframe and takes no click. Switching a layer's eye off is
-  /// how you get it out of the way; a box round something invisible, and a
+  /// paint. Two kinds are left out on purpose: a Camera has no picture to put
+  /// a box round, and **a layer switched off is not on the picture at all**,
+  /// so it gets no wireframe and takes no click. Switching a layer's eye off
+  /// is how you get it out of the way; a box round something invisible, and a
   /// click that selected it, put it right back in the way.
+  ///
+  /// A keyed transform channel is read **at the playhead**, through the same
+  /// batched sampler the Timeline's rows use, so an animated layer's box sits
+  /// where the picture has it and can be picked there. The sampler holds its
+  /// answers per frame and per document, so a hover still asks nothing; only
+  /// a playhead move or an edit costs the one crossing the rows already make.
   List<LayerBox> _boxes() {
     if (fitted.isEmpty) return const [];
     final model = uiState.model;
@@ -231,7 +236,12 @@ class ViewerStage extends StatelessWidget {
     // cross the bridge on: a keyed repeater's copies are part of the layer's
     // box, so the wireframe has to be measured at the frame on screen.
     final playheadSeconds = uiState.playheadFrame.value / model.heldFps;
-    double? still(BridgeScalar s) => s is BridgeScalar_Static ? s.field0 : null;
+    bool isStill(BridgeScalar s) => s is BridgeScalar_Static;
+    // The exact comp time, asked for only once a keyed channel needs it: a
+    // comp with nothing animated pays for no frame conversion at all.
+    late final at = timeOfFrame(comp, uiState.playheadFrame.value);
+    double read(BridgeScalar s) =>
+        s is BridgeScalar_Static ? s.field0 : sampledScalar(s, at);
 
     final out = <LayerBox>[];
     for (final entry in model.heldLayers) {
@@ -245,24 +255,21 @@ class ViewerStage extends StatelessWidget {
       // being dragged, which is nearly always.
       final tf = uiState.liveTransforms.value[entry.layer.internallayerId] ??
           entry.info.transform;
-      final px = still(tf.positionX);
-      final py = still(tf.positionY);
-      if (px == null || py == null) continue;
-      final sx = still(tf.scaleX);
-      final sy = still(tf.scaleY);
-      final rotation = still(tf.rotation);
+      final positionStill = isStill(tf.positionX) && isStill(tf.positionY);
+      final rotation = read(tf.rotation);
       final live = uiState.liveText.value[entry.layer.internallayerId];
+      final id = entry.layer.internallayerId;
       out.add(LayerBox(
         layer: entry.layer,
-        id: entry.layer.internallayerId,
+        id: id,
         map: ViewerLayerMap.of(
-          positionX: px,
-          positionY: py,
-          anchorX: still(tf.anchorX) ?? 0,
-          anchorY: still(tf.anchorY) ?? 0,
-          scaleXPercent: sx ?? 100,
-          scaleYPercent: sy ?? 100,
-          rotationDegrees: rotation ?? 0,
+          positionX: read(tf.positionX),
+          positionY: read(tf.positionY),
+          anchorX: read(tf.anchorX),
+          anchorY: read(tf.anchorY),
+          scaleXPercent: read(tf.scaleX),
+          scaleYPercent: read(tf.scaleY),
+          rotationDegrees: rotation,
           origin: fitted.topLeft,
           viewScale: viewScale,
         ),
@@ -273,9 +280,20 @@ class ViewerStage extends StatelessWidget {
             ? uiState.layerBounds.boundsOf(entry,
                 compSize: compSize, revision: revision, t: playheadSeconds)
             : textLayerBounds(live.text, live.size),
-        draggable: true,
-        scalable: sx != null && sy != null && rotation != null,
-        rotationDegrees: rotation ?? 0,
+        // A keyed position has no one value for a body drag to add to; its
+        // keys are dragged on the motion path instead. Keyed scale or
+        // rotation likewise grows no handles.
+        draggable: positionStill,
+        scalable: isStill(tf.scaleX) &&
+            isStill(tf.scaleY) &&
+            isStill(tf.rotation),
+        rotationDegrees: rotation,
+        // The path a keyed position follows, for the layers whose outline is
+        // drawn: asked once per layer per document revision and held.
+        motionPath: !positionStill && outlined.contains(id.toString())
+            ? uiState.motionPaths
+                .pathOf(entry.layer, revision: revision)
+            : null,
         // An animated mask draws where the picture has it, not where its
         // still path was last written.
         masks: [

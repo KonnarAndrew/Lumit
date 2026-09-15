@@ -11,6 +11,9 @@
 // `openProject` clears the engine's project registry, which is why this file
 // stands alone: every reference an earlier test held would die in it.
 
+@Tags(['opens-project'])
+library;
+
 import 'dart:convert';
 import 'dart:io';
 

@@ -206,8 +206,10 @@ class _StopsPreviewProgressState extends State<_StopsPreviewProgress> {
 /// A fresh engine-backed project and its UI state.
 ///
 /// Each call makes a new project with its own id, so tests do not collide in the
-/// engine's process-wide registry — but no test may call `openProject`, which
-/// clears that registry wholesale.
+/// engine's process-wide registry — but `openProject` and an import clear that
+/// registry wholesale, and the registry is shared by every test file running
+/// in the process. A file that opens a project carries `@Tags(['opens-project'])`
+/// so CI runs it after the parallel batch, one at a time (`dart_test.yaml`).
 ({LumitState state, LumitUiState uiState}) freshProject() {
   final state = LumitState()..newProject();
   // A default workspace, deliberately NOT loaded from disk: `Workspace()..load()`

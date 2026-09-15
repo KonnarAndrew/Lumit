@@ -9,6 +9,9 @@
 // that opens what it lists, a Clear that empties it and a × that takes one row
 // off it. None of that is visible in a screenshot, and all of it is the point.
 
+@Tags(['opens-project'])
+library;
+
 import 'dart:convert';
 import 'dart:io';
 

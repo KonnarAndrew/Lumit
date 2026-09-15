@@ -326,6 +326,27 @@ shape of the general rule: **a fact the model can state for nothing turns a per-
 question into no question at all**, and the expensive read (`get_graph`, to find which
 parameters a wire is deciding) is then made only for the layers that can possibly answer.
 
+### A motion path crosses sampled, and the playhead's value crosses batched
+
+`LayerReference::motion_path()` answers `Option<BridgeMotionPath>`: `None` while the
+layer's Position is still on both axes, otherwise the path the Viewer draws ([07-UI-SPEC.md](07-UI-SPEC.md)
+§2.4) — `first_frame` and `samples`, x and y interleaved in comp pixels, one pair per comp
+frame from the first key to the last; and `keys`, one per **time** at which either axis has
+a key, each with its comp time and frame, its point, `x_index` / `y_index` into the two
+axes' key lists (`None` where that axis has no key there), and `handle_in` / `handle_out`,
+the two axes' cubics' first control points across the neighbouring span, `None` where
+neither side is eased or the key is an end. Sampled engine-side so the line over the picture
+is the curve the render follows; a Dart evaluation would be a second opinion.
+
+It is a read of its own rather than a field of the comp read model, on the rule the
+animated mask paths follow: the answer changes only with the document and is drawn only for
+the outlined layers, so Dart asks once per outlined layer per revision and holds it. The
+value a keyed channel has **under the playhead** is not in the model either — the model
+carries no playhead, and would have to be re-read on every scrub if it did — so the Viewer's
+boxes read it through `sample_scalars`, the one batched crossing the Timeline's rows already
+make per frame. A drag of a key on the path writes through `set_transforms`, the same op
+the graph editor commits with.
+
 ### A layer group crosses already resolved
 
 `BridgeCompModel.groups: Vec<BridgeLayerGroup>` carries, per group, its id, name and label
