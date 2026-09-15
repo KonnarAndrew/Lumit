@@ -5561,6 +5561,14 @@
   "@projectItemMissing": {
     "description": "Warning beside a footage item whose file cannot be found on disk. Lower case on purpose — it sits in a line of facts."
   },
+  "projectItemUndecodable": "unreadable",
+  "@projectItemUndecodable": {
+    "description": "Warning beside a footage item whose file is on disk but cannot be decoded. Lower case, one word, like the other row badges."
+  },
+  "tipProjectUndecodable": "Can't decode",
+  "@tipProjectUndecodable": {
+    "description": "Tooltip on the unreadable badge of a Project panel footage item: the file is on disk but Lumit can't decode it."
+  },
   "projectPreviewPlay": "Play this file",
   "@projectPreviewPlay": {
     "description": "Tooltip on the button that stands in the Project panel preview card where a picture would be, for a sound file. Pressing it plays the file from the start."

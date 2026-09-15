@@ -2414,8 +2414,8 @@ Future<void> _clickRow(
 /// sidestep it entirely.
 ///
 /// *Existing is not the same as resolving.* `get_status` probes the file with
-/// libavformat, so four arbitrary bytes read as missing just like a path that is
-/// not there — the relink would appear to do nothing. This writes a genuinely
+/// libavformat, so four arbitrary bytes do not resolve any more than a path that
+/// is not there, so the relink would appear to do nothing. This writes a genuinely
 /// valid 8-bit mono PCM WAV, which libavformat opens and reports one audio stream
 /// for, so the item really does resolve afterwards. A WAV rather than a video
 /// because it can be built here byte by byte; a real video would need an ffmpeg

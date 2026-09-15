@@ -361,5 +361,8 @@ class FootageReference {
 enum LumitMediaStatus {
   missing,
   ready,
+
+  /// On disk, but the decoder cannot read a picture or sound out of it.
+  undecodable,
   ;
 }

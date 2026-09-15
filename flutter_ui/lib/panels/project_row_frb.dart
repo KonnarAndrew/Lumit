@@ -125,6 +125,9 @@ class ProjectRowFrb extends StatefulWidget {
   final int depth;
   final bool missing;
 
+  /// On disk, but the engine cannot decode it.
+  final bool undecodable;
+
   /// Sound with no picture — the media probe's own answer, which is what picks
   /// the speaker glyph over the film one.
   final bool audio;
@@ -216,6 +219,7 @@ class ProjectRowFrb extends StatefulWidget {
     required this.name,
     required this.depth,
     required this.missing,
+    this.undecodable = false,
     required this.audio,
     required this.label,
     required this.inherited,
@@ -519,6 +523,18 @@ class _ProjectRowFrbState extends State<ProjectRowFrb> {
                         label: l10n.projectItemMissing,
                         colour: t.warning,
                       ),
+                    ),
+                  ),
+                ],
+                if (widget.undecodable) ...[
+                  const SizedBox(width: projectRowGap),
+                  LumitTooltip(
+                    message: l10n.tipProjectUndecodable,
+                    child: ProjectBadge(
+                      key: ValueKey<String>(
+                          'undecodable-${projectItemId(item)}'),
+                      label: l10n.projectItemUndecodable,
+                      colour: t.warning,
                     ),
                   ),
                 ],

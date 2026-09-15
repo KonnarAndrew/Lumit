@@ -487,6 +487,9 @@ class _ProjectPanelFrbState extends State<ProjectPanelFrb> {
   /// someone nudged a layer value.
   final Map<String, bool> _missing = {};
 
+  /// Footage the engine found on disk but cannot decode, by id.
+  final Set<String> _undecodable = {};
+
   /// Bumped whenever the document changes, to key the thumbnail futures so a
   /// relink re-decodes rather than showing the stale picture. The frb equivalent
   /// of v0's `documentEpoch`.
@@ -636,6 +639,7 @@ class _ProjectPanelFrbState extends State<ProjectPanelFrb> {
           name: name,
           depth: depth,
           missing: isMissingFootage,
+          undecodable: _undecodable.contains(id),
           audio: audio,
           label: label,
           inherited: inherited,
@@ -1176,6 +1180,7 @@ class _ProjectPanelFrbState extends State<ProjectPanelFrb> {
     setState(() {
       _epoch++;
       _missing.clear();
+      _undecodable.clear();
       _mediaInfo.clear();
       _compCells.clear();
       _childCounts.clear();
@@ -1242,8 +1247,15 @@ class _ProjectPanelFrbState extends State<ProjectPanelFrb> {
           item.field0.getStatus().then((status) {
             if (!mounted) return;
             final isMissing = status == LumitMediaStatus.missing;
-            if (_missing[id] != isMissing) {
+            final undecodable = status == LumitMediaStatus.undecodable;
+            if (_missing[id] != isMissing ||
+                _undecodable.contains(id) != undecodable) {
               _missing[id] = isMissing;
+              if (undecodable) {
+                _undecodable.add(id);
+              } else {
+                _undecodable.remove(id);
+              }
               _bookRebuild();
             }
             // A probe can outlive its document: opening a project clears the

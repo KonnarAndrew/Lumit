@@ -21356,6 +21356,7 @@ impl SseDecode for crate::api::footage::LumitMediaStatus {
         return match inner {
             0 => crate::api::footage::LumitMediaStatus::Missing,
             1 => crate::api::footage::LumitMediaStatus::Ready,
+            2 => crate::api::footage::LumitMediaStatus::Undecodable,
             _ => unreachable!("Invalid variant for LumitMediaStatus: {}", inner),
         };
     }
@@ -28023,6 +28024,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::footage::LumitMediaStatus {
         match self {
             Self::Missing => 0.into_dart(),
             Self::Ready => 1.into_dart(),
+            Self::Undecodable => 2.into_dart(),
             _ => unreachable!(),
         }
     }
@@ -32222,6 +32224,7 @@ impl SseEncode for crate::api::footage::LumitMediaStatus {
             match self {
                 crate::api::footage::LumitMediaStatus::Missing => 0,
                 crate::api::footage::LumitMediaStatus::Ready => 1,
+                crate::api::footage::LumitMediaStatus::Undecodable => 2,
                 _ => {
                     unimplemented!("");
                 }

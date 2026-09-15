@@ -26,6 +26,8 @@ pub struct FootageReference {
 pub enum LumitMediaStatus {
     Missing,
     Ready,
+    /// On disk, but the decoder cannot read a picture or sound out of it.
+    Undecodable,
 }
 
 /// A footage file's own vital statistics, as the container declares them.
@@ -618,8 +620,7 @@ impl FootageReference {
 
         match item {
             lumit_core::model::ProjectItem::Footage(footage_item) => {
-                // An unresolvable path is missing media, same as one that
-                // resolves but no longer decodes.
+                // An unresolvable path is missing media.
                 let Some(path) = Self::resolve_path(&proj, footage_item) else {
                     return Ok(LumitMediaStatus::Missing);
                 };
@@ -643,14 +644,20 @@ impl FootageReference {
                 // answered from memory.
                 #[cfg(not(feature = "media"))]
                 let probed = true;
+                // A picture with no size is one FFmpeg found but could not read.
                 #[cfg(feature = "media")]
                 let probed = Self::resolve_source(&proj, footage_item)
-                    .is_some_and(|src| crate::probe::ensure_probed(&src).is_some());
+                    .and_then(|src| crate::probe::ensure_probed(&src))
+                    .is_some_and(|info| {
+                        info.video
+                            .as_ref()
+                            .is_none_or(|v| v.width > 0 && v.height > 0)
+                    });
 
                 if probed {
                     Ok(LumitMediaStatus::Ready)
                 } else {
-                    Ok(LumitMediaStatus::Missing)
+                    Ok(LumitMediaStatus::Undecodable)
                 }
             }
             _ => Err(BridgeError::InvalidItem),

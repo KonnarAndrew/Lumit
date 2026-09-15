@@ -609,6 +609,24 @@ fn a_footage_item_pointing_at_nothing_reports_missing() {
     assert!(matches!(status, LumitMediaStatus::Missing));
 }
 
+// A file on disk that FFmpeg cannot read says so, rather than passing as missing
+// or as ready. The png opens as a picture with no size, the mp4 not at all.
+#[cfg(feature = "media")]
+#[test]
+fn a_footage_file_that_will_not_decode_reports_undecodable() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let project = LumitBridgeState::new_project(None).expect("project");
+    for name in ["broken.png", "broken.mp4"] {
+        let path = dir.path().join(name);
+        std::fs::write(&path, b"not a picture, just some text").expect("written");
+        let footage = project
+            .import_footage(path.to_string_lossy().into_owned())
+            .expect("imported");
+        let status = footage.get_status().expect("status");
+        assert!(matches!(status, LumitMediaStatus::Undecodable), "{name}");
+    }
+}
+
 /// Relink takes a write lock after having taken a read lock earlier in the same
 /// call. If those ever overlap, this deadlocks rather than fails — so the test
 /// existing at all is the guard.
