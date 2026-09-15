@@ -7,6 +7,7 @@
 // viewer_layer_map.dart, whose maths these build on.
 
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -29,6 +30,7 @@ void main() {
     List<BridgeMask> masks = const [],
     List<BridgeShapeItem> shapeContents = const [],
     Offset artOrigin = Offset.zero,
+    BridgeMotionPath? motionPath,
   }) =>
       LayerBox(
         layer: LayerReference(
@@ -55,6 +57,28 @@ void main() {
         masks: masks,
         shapeContents: shapeContents,
         artOrigin: artOrigin,
+        motionPath: motionPath,
+      );
+
+  /// A path from (100, 200) to (400, 500) in comp pixels over three frames,
+  /// with a key at each end — the shape the engine hands back for a position
+  /// keyed on both axes.
+  BridgeMotionPath path() => BridgeMotionPath(
+        firstFrame: 0,
+        samples: Float64List.fromList([100, 200, 200, 300, 300, 400, 400, 500]),
+        keys: [
+          for (final (frame, x, y) in [(0, 100.0, 200.0), (3, 400.0, 500.0)])
+            BridgeMotionKey(
+              time: BridgeRational(num: frame, den: 30),
+              frame: frame,
+              x: x,
+              y: y,
+              xIndex: frame == 0 ? 0 : 1,
+              yIndex: frame == 0 ? 0 : 1,
+              handleIn: null,
+              handleOut: null,
+            ),
+        ],
       );
 
   /// A square mask in the layer's own coordinates, all corners.
@@ -137,6 +161,80 @@ void main() {
         repeatStartOpacity: const BridgeScalar.static_(100),
         repeatEndOpacity: const BridgeScalar.static_(100),
       );
+
+  group('A motion path (docs/07 §2.4)', () {
+    test('is drawn in comp pixels through the picture\'s placement alone', () {
+      // Scaled and turned, which a comp-space point must ignore: Position is
+      // where the anchor lands in the comp, not a point of the layer's own.
+      final b = box(
+        scale: 50,
+        rotation: 45,
+        origin: const Offset(10, 20),
+        viewScale: 0.5,
+        motionPath: path(),
+      );
+      final points = motionPathScreen(b);
+      expect(points, hasLength(4));
+      expect(points.first, const Offset(10 + 50, 20 + 100));
+      expect(points.last, const Offset(10 + 200, 20 + 250));
+      expect(motionPathScreen(box()), isEmpty,
+          reason: 'a still position has nothing to draw');
+    });
+
+    test('a key is found within its own tight reach, and not beyond it', () {
+      final b = box(motionPath: path());
+      // The last key sits at (400, 500) on a 1:1 picture from the origin.
+      expect(motionKeyAt([b], const Offset(403, 502))?.index, 1);
+      expect(motionKeyAt([b], const Offset(101, 199))?.index, 0);
+      expect(motionKeyAt([b], const Offset(420, 500)), isNull,
+          reason: 'a press past the anchor slop is the layer\'s, not the key\'s');
+      expect(motionKeyAt([box()], const Offset(400, 500)), isNull);
+    });
+
+    test('moving a key writes that key on the axes keyed there, and no other',
+        () {
+      BridgeKeyframe key(int frame, double value) => BridgeKeyframe(
+            time: BridgeRational(num: frame, den: 30),
+            value: value,
+            interpIn: const BridgeSideInterp.linear(),
+            interpOut: const BridgeSideInterp.linear(),
+          );
+      final tf = BridgeTransform(
+        anchorX: const BridgeScalar.static_(0),
+        anchorY: const BridgeScalar.static_(0),
+        positionX: BridgeScalar.keyframed([key(0, 100), key(3, 400)]),
+        // y is still: a key dot on the path moves x only.
+        positionY: const BridgeScalar.static_(200),
+        positionZ: const BridgeScalar.static_(0),
+        scaleX: const BridgeScalar.static_(100),
+        scaleY: const BridgeScalar.static_(100),
+        rotation: const BridgeScalar.static_(0),
+        rotationX: const BridgeScalar.static_(0),
+        rotationY: const BridgeScalar.static_(0),
+        opacity: const BridgeScalar.static_(100),
+      );
+      final last = path().keys.last;
+      final moved = transformWithMotionKey(
+        tf,
+        BridgeMotionKey(
+          time: last.time,
+          frame: last.frame,
+          x: last.x,
+          y: last.y,
+          xIndex: 1,
+          yIndex: null,
+          handleIn: null,
+          handleOut: null,
+        ),
+        const Offset(450, 999),
+      );
+      final x = moved.positionX as BridgeScalar_Keyframed;
+      expect(x.field0.map((k) => k.value), [100, 450]);
+      expect(x.field0[1].time, last.time, reason: 'the key keeps its time');
+      expect(moved.positionY, tf.positionY,
+          reason: 'an axis with no key there is left alone');
+    });
+  });
 
   group('What a point is inside', () {
     test('the layer contains its own middle and not the space beside it', () {

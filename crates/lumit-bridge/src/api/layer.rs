@@ -1719,6 +1719,149 @@ pub struct BridgeLayerMarker {
     pub frame: i64,
 }
 
+/// One keyframe on a layer's **motion path** (docs/07 §2.4): where the
+/// layer's Position is at that key, in comp pixels, and the handles its eases
+/// draw as.
+///
+/// Position is two scalar curves, x and y, each keyed on its own (docs/03
+/// §6.5), so a dot on the path is a *time* at which either axis has a key;
+/// `x_index` and `y_index` say which key of each list sits there, and a drag
+/// of the dot writes only the axes that have one.
+#[frb(non_opaque)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct BridgeMotionKey {
+    /// Comp time, carried out by the layer's start offset as every key is.
+    pub time: BridgeRational,
+    pub frame: i64,
+    pub x: f64,
+    pub y: f64,
+    pub x_index: Option<u32>,
+    pub y_index: Option<u32>,
+    /// The tangent handles in comp pixels: on each side, the first control
+    /// point of the two axes' cubics across the neighbouring span, which is
+    /// the spatial handle an eased key would carry if the axes were coupled.
+    /// `None` where both axes are straight or held on that side, where the
+    /// key is an end, or where one axis has no key at this time.
+    pub handle_in: Option<[f64; 2]>,
+    pub handle_out: Option<[f64; 2]>,
+}
+
+/// A layer's motion path as the Viewer draws it: Position sampled by the
+/// engine once per comp frame across the keyed range, and the keys on it.
+///
+/// Sampled here rather than in Dart so the line over the picture is the curve
+/// the render follows, automatic tangents and expressions included.
+#[frb(non_opaque)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct BridgeMotionPath {
+    /// The comp frame of the first sample; one sample per frame follows.
+    pub first_frame: i64,
+    /// x and y interleaved, in comp pixels: `samples[2 * i]` and
+    /// `samples[2 * i + 1]` are the position at `first_frame + i`.
+    pub samples: Vec<f64>,
+    pub keys: Vec<BridgeMotionKey>,
+}
+
+/// The motion path of `layer` in `comp`, or `None` while its Position is
+/// still on both axes — which is most layers, and the answer that costs
+/// nothing.
+#[frb(ignore)]
+pub(crate) fn motion_path_of(
+    comp: &lumit_core::model::Composition,
+    layer: &Layer,
+) -> Option<BridgeMotionPath> {
+    use lumit_core::anim::{resolved_side, SideInterp};
+
+    fn keys_of(property: &Property) -> Option<&[Keyframe]> {
+        match &property.animation {
+            Animation::Keyframed(keys) if !keys.is_empty() => Some(keys.as_slice()),
+            _ => None,
+        }
+    }
+    let (px, py) = (&layer.transform.position_x, &layer.transform.position_y);
+    let (kx, ky) = (keys_of(px), keys_of(py));
+    if kx.is_none() && ky.is_none() {
+        return None;
+    }
+    let offset = layer.start_offset.0;
+    let comp_time = |t: Rational| CompTime(t.checked_add(offset).unwrap_or(t));
+
+    // Every time either axis has a key at, on the layer's clock, oldest first.
+    let mut times: Vec<Rational> = kx.into_iter().chain(ky).flatten().map(|k| k.time).collect();
+    times.sort_by(|a, b| a.to_f64().total_cmp(&b.to_f64()));
+    times.dedup();
+    let first_frame = comp.frame_rate.frame_at(comp_time(*times.first()?));
+    let last_frame = comp.frame_rate.frame_at(comp_time(*times.last()?));
+
+    let mut samples = Vec::new();
+    for frame in first_frame..=last_frame {
+        let t = comp.frame_rate.time_of_frame(frame).ok()?.0;
+        let local = lumit_core::time::layer_time(t.to_f64(), offset);
+        samples.push(px.value_at(local));
+        samples.push(py.value_at(local));
+    }
+
+    // How far one axis' handle sits from its key on one side: the cubic's
+    // first control point less the key, in that axis' own units. A straight
+    // side is a handle a third of the way along the chord, as the evaluator
+    // treats it; a held side has no span to draw a handle across.
+    let reach = |keys: &[Keyframe], i: usize, out: bool| -> Option<f64> {
+        let j = if out {
+            i.checked_add(1)?
+        } else {
+            i.checked_sub(1)?
+        };
+        let neighbour = keys.get(j)?;
+        let key = keys.get(i)?;
+        let dt = (neighbour.time.to_f64() - key.time.to_f64()).abs();
+        match resolved_side(keys, i, out) {
+            SideInterp::Bezier { speed, influence } => {
+                let along = speed * influence.clamp(1e-3, 1.0) * dt;
+                Some(if out { along } else { -along })
+            }
+            SideInterp::Linear => Some((neighbour.value - key.value) / 3.0),
+            SideInterp::Hold | SideInterp::Auto { .. } => None,
+        }
+    };
+    let eased = |keys: &[Keyframe], i: usize, out: bool| {
+        matches!(resolved_side(keys, i, out), SideInterp::Bezier { .. })
+    };
+
+    let keys = times
+        .iter()
+        .map(|&time| {
+            let local = time.to_f64();
+            let (x, y) = (px.value_at(local), py.value_at(local));
+            let index = |keys: Option<&[Keyframe]>| {
+                keys.and_then(|k| k.iter().position(|key| key.time == time))
+            };
+            let (ix, iy) = (index(kx), index(ky));
+            let handle = |out: bool| -> Option<[f64; 2]> {
+                let (kx, ky, ix, iy) = (kx?, ky?, ix?, iy?);
+                if !eased(kx, ix, out) && !eased(ky, iy, out) {
+                    return None;
+                }
+                Some([x + reach(kx, ix, out)?, y + reach(ky, iy, out)?])
+            };
+            BridgeMotionKey {
+                time: rational_of(comp_time(time).0),
+                frame: comp.frame_rate.frame_at(comp_time(time)),
+                x,
+                y,
+                x_index: ix.and_then(|i| u32::try_from(i).ok()),
+                y_index: iy.and_then(|i| u32::try_from(i).ok()),
+                handle_in: handle(false),
+                handle_out: handle(true),
+            }
+        })
+        .collect();
+    Some(BridgeMotionPath {
+        first_frame,
+        samples,
+        keys,
+    })
+}
+
 /// Build one layer's [`BridgeLayerInfo`] from an already-fetched composition —
 /// the shared body of [`LayerReference::get_info`] and the comp-wide
 /// [`crate::api::composition::CompositionReference::get_model`].
@@ -2951,10 +3094,13 @@ impl LayerReference {
     /// the graph editor commits when a handle is dragged, and what a lane drag
     /// of several keys at once needs.
     ///
-    /// `keys` must name every key the mask has, in order; their `value` is
+    /// `keys` names every key the mask has, in order; their `value` is
     /// ignored, because a path key holds a shape rather than a number. Refused
     /// as a whole if the times are not strictly ascending: the evaluator walks
     /// the list assuming they are, and a half-applied reorder is not a mask.
+    ///
+    /// A shorter list is a delete. Each key it names is found by its time, and
+    /// the rest go. Deleting the last key leaves the shape that key held.
     #[frb(sync)]
     pub fn set_mask_path_keys(
         &self,
@@ -2968,15 +3114,24 @@ impl LayerReference {
             .iter()
             .position(|m| m.id == id)
             .ok_or(BridgeError::NoSuchMask)?;
-        if keys.len() != masks[at].path_keys.len() {
+        let count = masks[at].path_keys.len();
+        if keys.len() > count {
             return Ok(false);
         }
         let mut written = Vec::with_capacity(keys.len());
-        for (key, existing) in keys.iter().zip(masks[at].path_keys.iter()) {
+        for (i, key) in keys.iter().enumerate() {
             let time = Rational::new(key.time.num, key.time.den)
                 .map_err(|_| BridgeError::InvalidKeyframes)?
                 .checked_sub(offset)
                 .map_err(|_| BridgeError::InvalidKeyframes)?;
+            let existing = if keys.len() == count {
+                &masks[at].path_keys[i]
+            } else {
+                match masks[at].path_keys.iter().find(|k| k.time == time) {
+                    Some(k) => k,
+                    None => return Ok(false),
+                }
+            };
             if written
                 .last()
                 .is_some_and(|p: &lumit_core::mask::PathKeyframe| time <= p.time)
@@ -2989,6 +3144,11 @@ impl LayerReference {
                 interp_in: key.interp_in.write(),
                 interp_out: key.interp_out.write(),
             });
+        }
+        if written.is_empty() {
+            if let Some(last) = masks[at].path_keys.last() {
+                masks[at].path = last.path.clone();
+            }
         }
         masks[at].path_keys = written;
         self.commit_masks(masks)?;
@@ -5200,6 +5360,26 @@ impl LayerReference {
     pub fn get_transform(&self) -> Result<BridgeTransform, BridgeError> {
         let layer = self.item()?;
         Ok(BridgeTransform::read_layer(&layer))
+    }
+
+    /// This layer's **motion path** (docs/07 §2.4), or `None` while its
+    /// Position is still — see [`motion_path_of`].
+    ///
+    /// A read of its own rather than a field of the comp read model: the
+    /// path is drawn only for the outlined layers and changes only with the
+    /// document, so the Viewer asks once per outlined layer per revision and
+    /// holds the answer. The value under the playhead is not in here either;
+    /// the Viewer samples that through `sample_scalars`, in the one batched
+    /// crossing the Timeline's rows already make per frame.
+    #[frb(sync)]
+    pub fn motion_path(&self) -> Result<Option<BridgeMotionPath>, BridgeError> {
+        let comp = self.composition()?;
+        let layer = comp
+            .layers
+            .iter()
+            .find(|l| l.id == self.layer_id)
+            .ok_or(BridgeError::InvalidLayer)?;
+        Ok(motion_path_of(&comp, layer))
     }
 
     /// The layer's source audio summarised across `[start_seconds,

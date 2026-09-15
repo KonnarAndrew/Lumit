@@ -9,6 +9,9 @@
 // that opens what it lists, a Clear that empties it and a × that takes one row
 // off it. None of that is visible in a screenshot, and all of it is the point.
 
+@Tags(['opens-project'])
+library;
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -44,7 +47,7 @@ void main() {
   setUpAll(initEngineForTests);
 
   group('Welcome screen (frb)', () {
-    final theme = LumitTheme.forScheme(LumitColorScheme.dark, ThemeShape.sharp);
+    final theme = LumitTheme.forScheme(LumitColorScheme.dark, ThemeShape.studio);
 
     /// Three remembered projects, newest first once the store has them.
     const paths = [
@@ -168,9 +171,9 @@ void main() {
     /// seen yet. The keys are never chosen: they are the brand.
     test('the wordmark\'s lettering follows the ground', () {
       final dark =
-          LumitTheme.forScheme(LumitColorScheme.dark, ThemeShape.sharp);
+          LumitTheme.forScheme(LumitColorScheme.dark, ThemeShape.studio);
       final light =
-          LumitTheme.forScheme(LumitColorScheme.light, ThemeShape.sharp);
+          LumitTheme.forScheme(LumitColorScheme.light, ThemeShape.studio);
 
       expect(wordmarkLetters(dark.surface0), brandWordmarkPaper);
       expect(wordmarkLetters(light.surface0), brandWordmarkInk,

@@ -20,10 +20,13 @@
 // **Whose transform is whose.** Every box is built from the comp read model,
 // so drawing costs no bridge calls. Edits go through the layer's own
 // reference handle, as everywhere else. A layer whose position is animated has
-// no single point to drag, so it gets a box and no handles — the same rule the
-// move handle had before this.
+// no single point to drag, so its body does not drag; instead its **motion
+// path** is drawn over the picture (docs/07 §2.4) — the line the engine
+// sampled, a dot per frame, a box per key — and dragging a key's box moves
+// that key.
 
 import 'dart:math' as math;
+import 'dart:ui' show PointMode;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
@@ -177,6 +180,11 @@ class LayerBox {
   /// pins over the picture costs no bridge calls.
   final BridgePuppet? puppet;
 
+  /// The layer's motion path, as the engine sampled it, or null on a layer
+  /// whose Position is still or whose outline is not drawn. In comp pixels,
+  /// because Position is where the anchor lands in the comp.
+  final BridgeMotionPath? motionPath;
+
   const LayerBox({
     required this.layer,
     required this.id,
@@ -189,6 +197,7 @@ class LayerBox {
     this.shapeContents = const [],
     this.artOrigin = Offset.zero,
     this.puppet,
+    this.motionPath,
   });
 
   /// A point of the layer's **art** on screen.
@@ -217,6 +226,7 @@ class LayerBox {
         shapeContents: shapeContents,
         artOrigin: artOrigin,
         puppet: puppet,
+        motionPath: motionPath,
       );
 
   /// The same box with the layer scaled to [sxPercent] / [syPercent] — the
@@ -436,6 +446,89 @@ Set<String> pathPointsInRect(List<LayerBox> boxes, Rect rect) => {
 Offset pointDeltaIn(LayerBox box, Offset screenDelta) =>
     box.map.layerOf(screenDelta) - box.map.layerOf(Offset.zero);
 
+/// A comp-space point on screen: the picture's origin plus the point at the
+/// view's scale. A motion path is in comp pixels rather than layer pixels,
+/// because Position is where the layer's anchor lands in the comp — so it goes
+/// through none of the layer's own scale or rotation.
+Offset compToScreen(LayerBox box, double x, double y) =>
+    box.map.origin + Offset(x, y) * box.map.viewScale;
+
+/// [box]'s motion path on screen, one point per comp frame; empty when the
+/// layer has none.
+List<Offset> motionPathScreen(LayerBox box) {
+  final path = box.motionPath;
+  if (path == null) return const [];
+  return [
+    for (var i = 0; i + 1 < path.samples.length; i += 2)
+      compToScreen(box, path.samples[i], path.samples[i + 1]),
+  ];
+}
+
+/// The motion-path key under [point] across [boxes], or null when none is
+/// near enough. Nearest wins, as it does for a path's points.
+({LayerBox box, int index})? motionKeyAt(
+  List<LayerBox> boxes,
+  Offset point, {
+  double slop = gizmoAnchorSlop / 2,
+}) {
+  ({LayerBox box, int index})? best;
+  var bestDistance = slop;
+  for (final box in boxes) {
+    final keys = box.motionPath?.keys;
+    if (keys == null) continue;
+    for (var i = 0; i < keys.length; i++) {
+      final d = (compToScreen(box, keys[i].x, keys[i].y) - point).distance;
+      if (d <= bestDistance) {
+        bestDistance = d;
+        best = (box: box, index: i);
+      }
+    }
+  }
+  return best;
+}
+
+/// [tf] with the motion-path key [key] moved to [to] (comp pixels): the
+/// keyframe each axis has at that time takes the new value, and an axis with
+/// no key there is left as it is. The preview and the commit both come through
+/// here, so the picture cannot land anywhere but where the dot did.
+BridgeTransform transformWithMotionKey(
+  BridgeTransform tf,
+  BridgeMotionKey key,
+  Offset to,
+) {
+  BridgeScalar moved(BridgeScalar scalar, int? index, double value) {
+    if (index == null || scalar is! BridgeScalar_Keyframed) return scalar;
+    final keys = scalar.field0;
+    if (index >= keys.length) return scalar;
+    return BridgeScalar.keyframed([
+      for (var i = 0; i < keys.length; i++)
+        if (i == index)
+          BridgeKeyframe(
+            time: keys[i].time,
+            value: value,
+            interpIn: keys[i].interpIn,
+            interpOut: keys[i].interpOut,
+          )
+        else
+          keys[i],
+    ]);
+  }
+
+  return BridgeTransform(
+    anchorX: tf.anchorX,
+    anchorY: tf.anchorY,
+    positionX: moved(tf.positionX, key.xIndex, to.dx),
+    positionY: moved(tf.positionY, key.yIndex, to.dy),
+    positionZ: tf.positionZ,
+    scaleX: tf.scaleX,
+    scaleY: tf.scaleY,
+    rotation: tf.rotation,
+    rotationX: tf.rotationX,
+    rotationY: tf.rotationY,
+    opacity: tf.opacity,
+  );
+}
+
 List<BridgeVertex> _verticesMoved(
   List<BridgeVertex> vertices,
   bool Function(int index) moved,
@@ -611,7 +704,18 @@ double rotationForDrag({
 }
 
 /// What the pointer is doing to the picture right now.
-enum _GizmoDrag { none, move, scale, rotate, anchor, points, marquee }
+enum _GizmoDrag {
+  none,
+  move,
+  scale,
+  rotate,
+  anchor,
+  points,
+  marquee,
+
+  /// A key of a motion path (docs/07 §2.4), dragged on the picture.
+  motionKey,
+}
 
 /// The layer controls over the picture.
 class ViewerGizmoLayer extends StatefulWidget {
@@ -688,6 +792,9 @@ class _ViewerGizmoLayerState extends State<ViewerGizmoLayer> {
   /// gesture started — the maths is all relative to that, so it must not be
   /// rebuilt from a document the drag is itself changing.
   LayerBox? _acting;
+
+  /// Which key of [_acting]'s motion path is in hand, while one is.
+  int? _motionKey;
 
   /// The layer under the pointer, drawn faintly so a click is predictable.
   UuidValue? _hover;
@@ -792,8 +899,17 @@ class _ViewerGizmoLayerState extends State<ViewerGizmoLayer> {
         : null;
 
     final painter = CustomPaint(
+      key: const ValueKey('viewer-gizmo'),
       painter: _GizmoPainter(
         selected: widget.showControls ? outlined : const [],
+        // The motion paths of the outlined layers, under the same switch as
+        // the boxes (docs/07 §2.2 item 5; their own switch is owed).
+        motionPaths: widget.showControls ? outlined : const [],
+        keyInHand: _drag == _GizmoDrag.motionKey &&
+                _acting != null &&
+                _motionKey != null
+            ? (layer: _acting!.id, index: _motionKey!, nudge: _delta)
+            : null,
         hover: widget.showControls && _hover != null && _selectionTool
             ? _hoverBox()
             : null,
@@ -1025,6 +1141,21 @@ class _ViewerGizmoLayerState extends State<ViewerGizmoLayer> {
     final selected = _selected;
     final aimedAt =
         widget.showControls ? pathPointAt(_editablePointBoxes, at) : null;
+
+    // A key on a selected layer's motion path: a press within its own tight
+    // reach drags that key, whatever layer's body sits under it.
+    if (aimedAt == null && widget.showControls) {
+      final key = motionKeyAt(selected, at);
+      if (key != null) {
+        setState(() {
+          _acting = key.box;
+          _motionKey = key.index;
+          _drag = _GizmoDrag.motionKey;
+        });
+        return;
+      }
+    }
+
     if (aimedAt == null && selected.length == 1 && selected.single.scalable) {
       final handle = selected.single.handleHit(at);
       if (handle != null) {
@@ -1074,6 +1205,12 @@ class _ViewerGizmoLayerState extends State<ViewerGizmoLayer> {
     if (!widget.uiState.selectedLayerIds.contains(hit.id)) {
       widget.uiState.setSelection([hit.layer]);
     }
+    // A keyed position has no one value for the drag to add to: the press
+    // has picked the layer, and its keys are dragged on the path instead.
+    if (!hit.draggable) {
+      _setHover(null);
+      return;
+    }
     setState(() {
       _drag = _GizmoDrag.move;
       _hover = null;
@@ -1096,6 +1233,8 @@ class _ViewerGizmoLayerState extends State<ViewerGizmoLayer> {
         _previewAnchor();
       case _GizmoDrag.points:
         _previewPoints();
+      case _GizmoDrag.motionKey:
+        _previewMotionKey();
       case _GizmoDrag.marquee || _GizmoDrag.none:
         break;
     }
@@ -1113,6 +1252,8 @@ class _ViewerGizmoLayerState extends State<ViewerGizmoLayer> {
         _commitAnchor();
       case _GizmoDrag.points:
         _commitPoints();
+      case _GizmoDrag.motionKey:
+        _commitMotionKey();
       case _GizmoDrag.marquee:
         _commitMarquee();
       case _GizmoDrag.none:
@@ -1124,6 +1265,7 @@ class _ViewerGizmoLayerState extends State<ViewerGizmoLayer> {
       _delta = Offset.zero;
       _acting = null;
       _handle = null;
+      _motionKey = null;
     });
   }
 
@@ -1134,6 +1276,7 @@ class _ViewerGizmoLayerState extends State<ViewerGizmoLayer> {
       _delta = Offset.zero;
       _acting = null;
       _handle = null;
+      _motionKey = null;
     });
   }
 
@@ -1357,7 +1500,9 @@ class _ViewerGizmoLayerState extends State<ViewerGizmoLayer> {
   void _commitPoints() {
     if (_delta == Offset.zero || _points.isEmpty) return;
     var landed = false;
-    for (final box in _selected) {
+    // The same boxes a point can be grabbed from, so a picked Path row's
+    // layer gets the write even when the layer isn't selected.
+    for (final box in _editablePointBoxes) {
       final d = pointDeltaIn(box, _delta);
       for (final mask in box.masks) {
         final moved = maskWithPointsMoved(box, mask, _points, d);
@@ -1429,7 +1574,7 @@ class _ViewerGizmoLayerState extends State<ViewerGizmoLayer> {
   /// request, so this previews a single layer, exactly as a move does.
   void _previewPoints() {
     final touched = [
-      for (final box in _selected)
+      for (final box in _editablePointBoxes)
         if (pathPointsOf(box).any((p) => _points.contains(p.key))) box,
     ];
     if (touched.length != 1) return;
@@ -1483,6 +1628,67 @@ class _ViewerGizmoLayerState extends State<ViewerGizmoLayer> {
     } catch (_) {
       // A preview is a courtesy: the wireframe still follows the pointer and
       // the commit still lands.
+    }
+  }
+
+  // --- Motion-path keys (docs/07 §2.4) ---------------------------------------
+
+  /// The key in hand and where it is being dragged to, in comp pixels: its
+  /// own point plus the pointer's travel at the view's scale.
+  (BridgeMotionKey, Offset)? _motionKeyNow() {
+    final box = _acting;
+    final index = _motionKey;
+    if (box == null || index == null) return null;
+    final keys = box.motionPath?.keys;
+    if (keys == null || index >= keys.length) return null;
+    final key = keys[index];
+    return (
+      key,
+      Offset(
+        key.x + _delta.dx / box.map.viewScale,
+        key.y + _delta.dy / box.map.viewScale,
+      ),
+    );
+  }
+
+  /// The picture under a key drag: the frame on screen, rendered with the
+  /// curve as it would be with the key moved. Where the playhead is outside
+  /// the span the key changes, the engine hands back the frame it has.
+  void _previewMotionKey() {
+    final box = _acting;
+    final now = _motionKeyNow();
+    if (box == null || now == null) return;
+    _throttle.request(() =>
+        _sendPreview(box, (tf) => transformWithMotionKey(tf, now.$1, now.$2)));
+  }
+
+  /// Write the moved key: one op for whichever axes have a key at that time,
+  /// so one drag is one undo step, exactly as a move of a still layer is.
+  ///
+  /// ponytail: the path itself catches up on release, when the document's
+  /// change refreshes it; only the key's box follows the pointer. A live
+  /// re-sample per tick is one more sync read on the same throttle if it is
+  /// ever wanted.
+  void _commitMotionKey() {
+    final box = _acting;
+    final now = _motionKeyNow();
+    if (box == null || now == null || _delta == Offset.zero) return;
+    final (key, to) = now;
+    try {
+      final tf = transformWithMotionKey(box.layer.getTransform(), key, to);
+      box.layer.setTransforms(
+        props: [
+          if (key.xIndex != null) BridgeTransformProp.positionX,
+          if (key.yIndex != null) BridgeTransformProp.positionY,
+        ],
+        values: [
+          if (key.xIndex != null) tf.positionX,
+          if (key.yIndex != null) tf.positionY,
+        ],
+      );
+      widget.onChanged();
+    } catch (_) {
+      // The layer went away mid-drag.
     }
   }
 
@@ -1557,6 +1763,14 @@ BridgeTransform transformWith(
 class _GizmoPainter extends CustomPainter {
   final List<LayerBox> selected;
 
+  /// The boxes whose motion path is drawn — those that have one, that is.
+  final List<LayerBox> motionPaths;
+
+  /// The motion-path key being dragged: whose, which, and how far it has
+  /// travelled so far — so its box follows the pointer before the document
+  /// hears about it.
+  final ({UuidValue layer, int index, Offset nudge})? keyInHand;
+
   /// The boxes whose masks are outlined.
   final List<LayerBox> maskedBoxes;
 
@@ -1580,6 +1794,8 @@ class _GizmoPainter extends CustomPainter {
 
   const _GizmoPainter({
     required this.selected,
+    required this.motionPaths,
+    required this.keyInHand,
     required this.maskedBoxes,
     required this.selectedPoints,
     required this.pointNudge,
@@ -1660,8 +1876,54 @@ class _GizmoPainter extends CustomPainter {
       paintAnchorMark(canvas, anchor + moved, accent);
     }
 
+    for (final box in motionPaths) {
+      _motionPath(canvas, box);
+    }
+
     final band = marquee;
     if (band != null) paintMarquee(canvas, band, accent);
+  }
+
+  /// A layer's motion path (docs/07 §2.4): the sampled line, a dot per frame
+  /// so their spacing reads as speed, a box per key — hollow when merely
+  /// there, filled while in hand — and each key's tangent handles as a line to
+  /// a hollow circle.
+  void _motionPath(Canvas canvas, LayerBox box) {
+    final path = box.motionPath;
+    if (path == null) return;
+    final line = Paint()
+      ..color = accent
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    final points = motionPathScreen(box);
+    if (points.length >= 2) {
+      canvas.drawPath(Path()..addPolygon(points, false), line);
+    }
+    canvas.drawPoints(
+      PointMode.points,
+      points,
+      Paint()
+        ..color = accent.withValues(alpha: 0.6)
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round,
+    );
+    final inHand = keyInHand;
+    for (var i = 0; i < path.keys.length; i++) {
+      final key = path.keys[i];
+      final held = inHand != null && inHand.layer == box.id && inHand.index == i;
+      final nudge = held ? inHand.nudge : Offset.zero;
+      final at = compToScreen(box, key.x, key.y) + nudge;
+      for (final handle in [key.handleIn, key.handleOut]) {
+        if (handle == null) continue;
+        final h = compToScreen(box, handle[0], handle[1]) + nudge;
+        canvas.drawLine(at, h, line);
+        canvas.drawCircle(h, 3, Paint()..color = surface);
+        canvas.drawCircle(h, 3, line);
+      }
+      final rect = Rect.fromCenter(center: at, width: 6, height: 6);
+      canvas.drawRect(rect, Paint()..color = held ? accent : surface);
+      canvas.drawRect(rect, line);
+    }
   }
 
   void _outline(Canvas canvas, List<Offset> corners, Color colour) {

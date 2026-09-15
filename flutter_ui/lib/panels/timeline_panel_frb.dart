@@ -1806,6 +1806,8 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
     // is kept, not looked up again: `dispose` runs after the element is
     // deactivated, where an ancestor lookup is no longer safe.
     _ui = Provider.of<LumitUiState>(context, listen: false);
+    // Chained, not overwritten: Effect controls may hold the claim already.
+    _priorDeleteClaim = _ui!.deleteClaim;
     _ui!.deleteClaim = _deleteClaim;
     _ui!.copyClaim = _copySelectedKeys;
     _ui!.pasteClaim = _pasteKeysIntoSelection;
@@ -2118,10 +2120,17 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
   /// hardware keyboard instead, which does not claim anything: every handler
   /// runs on every key, so deleting a graph key also let the shell delete the
   /// layer it belonged to.
-  bool _deleteClaim() =>
-      (_graph && _graphKeySelection.isNotEmpty && _deleteGraphKeys()) ||
-      (!_graph && _laneKeySelection.isNotEmpty && _deleteSelectedKeys()) ||
-      _deleteSelectedMasks();
+  bool _deleteClaim() {
+    if (!mounted || _ui?.activePanel != Panel.timeline) {
+      return _priorDeleteClaim?.call() ?? false;
+    }
+    return (_graph && _graphKeySelection.isNotEmpty && _deleteGraphKeys()) ||
+        (!_graph && _laneKeySelection.isNotEmpty && _deleteSelectedKeys()) ||
+        _deleteSelectedMasks();
+  }
+
+  /// The claim this panel chained onto when it mounted.
+  bool Function()? _priorDeleteClaim;
 
   /// Delete the keys picked in the graph pane, if it is there to ask.
   bool _deleteGraphKeys() {
@@ -2952,7 +2961,7 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
     _ui?.revealPropertyRequest.removeListener(_onRevealRequested);
     _ui?.revealFilterRequest.removeListener(_onRevealFilterRequested);
     _ui?.selectPropertyRequest.removeListener(_onSelectPropertyRequested);
-    if (_ui?.deleteClaim == _deleteClaim) _ui!.deleteClaim = null;
+    if (_ui?.deleteClaim == _deleteClaim) _ui!.deleteClaim = _priorDeleteClaim;
     if (_ui?.copyClaim == _copySelectedKeys) _ui!.copyClaim = null;
     if (_ui?.pasteClaim == _pasteKeysIntoSelection) _ui!.pasteClaim = null;
     if (_ui?.easingApply.value == _applyEasing) _ui!.easingApply.value = null;
@@ -3233,7 +3242,7 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
     // ruler, which is exactly what `density.ruler` is. Both are taken off, or
     // a drop lands a row above where it was let go.
     final y = box.globalToLocal(global).dy -
-        TimelineNavigator.band -
+        density.navigatorBand -
         density.ruler +
         (_vLane.hasClients ? _vLane.offset : 0);
     final slot = layerDropSlot(heights, y);
@@ -3475,6 +3484,8 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
           // one function decides what "export" means (a reason that applies
           // to commands as much as to strings).
           onExport: () => exportFrb(context),
+          mode: _mode,
+          onMode: _setMode,
         ),
         Expanded(
           // Dropping footage from the Project panel adds it as a layer, and
@@ -3890,7 +3901,7 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
                       // would start a band above the rows it scrolls.
                       Container(
                           height: t.density.timelineChromeRow +
-                              TimelineNavigator.band,
+                              t.density.navigatorBand,
                           color: t.surface1),
                       Container(
                           height: t.density.timelineHeaderRow,
@@ -3907,7 +3918,7 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
                 // Below the outline's own two chrome rows — the first of
                 // which carries the navigator's band — level with
                 // the foot of the lane side's ruler.
-                top: TimelineNavigator.band + t.density.ruler,
+                top: t.density.navigatorBand + t.density.ruler,
                 left: 0,
                 right: 0,
                 bottom: 0,
@@ -3917,7 +3928,7 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
                     builder: (context, _) => CustomPaint(
                       painter: RowDividerPainter(
                         step: t.density.laneRow,
-                        colour: t.hairline,
+                        colour: rowSeamColour(t),
                         phase: -((positionOf(_vOutline)?.pixels ?? 0) %
                             t.density.laneRow),
                         // The grid here repeats from the
@@ -4063,7 +4074,14 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(
-                child: SingleChildScrollView(
+                child: ClipRRect(
+                  // The same clip as the layer view's, so switching views
+                  // updates one scroll view in place rather than mounting a
+                  // second one on the same controller.
+                  clipBehavior: t.tokens.roomed ? Clip.antiAlias : Clip.none,
+                  borderRadius: BorderRadius.circular(
+                      t.tokens.roomed ? t.tokens.sectionRadius : 0),
+                  child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   controller: _hLane,
                   child: SizedBox(
@@ -4170,6 +4188,7 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
                     ),
                   ),
                 ),
+                ),
               ),
               // The pane frames itself vertically
               // (or the wheel does); the gutter
@@ -4199,6 +4218,8 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
           onZoomDragStart: _zoomDragStart,
           onZoomDragEnd: _zoomDragEnd,
           maxZoom: _maxZoom,
+          perFrame: axis.perFrame,
+          fps: ui.model.fps,
         ),
       ],
     );
@@ -4230,7 +4251,14 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(
-                child: SingleChildScrollView(
+                child: ClipRRect(
+                  // Lantern's lane area is a sub-card with the section's
+                  // corners; the other shapes clip nothing at all, so what a
+                  // graph draws past its box still shows.
+                  clipBehavior: t.tokens.roomed ? Clip.antiAlias : Clip.none,
+                  borderRadius: BorderRadius.circular(
+                      t.tokens.roomed ? t.tokens.sectionRadius : 0),
+                  child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   controller: _hLane,
                   child: SizedBox(
@@ -4293,6 +4321,7 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
                     ),
                   ),
                 ),
+                ),
               ),
               // The lanes' thumb, pinned to the
               // viewport's right edge rather than
@@ -4322,6 +4351,27 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
             onOpen: () => _openAudioWorkspace(ui),
             onMenu: (at) => _soundMixMenu(ui, comp, at),
           ),
+        // Lantern's minimap: the whole comp's bars compressed into a strip
+        // under the lanes, with the visible range as a lighter window that
+        // drags to scroll. The same strip the navigator is, drawing bars.
+        if (t.shape == ThemeShape.lantern)
+          TimelineNavigator(
+            trailing: scrollGutterWidth,
+            frames: frames,
+            zoom: _zoomMotion,
+            hScroll: _hLane,
+            playhead: ui.playheadFrame,
+            onWindow: _navigateTo,
+            onWindowEnd: _zoomDragEnd,
+            height: 10,
+            bars: [
+              for (final row in rows)
+                (
+                  row.entry.info.inFrame.toInt(),
+                  row.entry.info.outFrame.toInt()
+                ),
+            ],
+          ),
         LaneBottomBar(
           zoom: _zoomMotion.target,
           hScroll: _hLane,
@@ -4332,6 +4382,8 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
           onZoomDragStart: _zoomDragStart,
           onZoomDragEnd: _zoomDragEnd,
           maxZoom: _maxZoom,
+          perFrame: axis.perFrame,
+          fps: ui.model.fps,
         ),
       ],
     );

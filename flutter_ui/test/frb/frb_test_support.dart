@@ -123,7 +123,7 @@ Widget hostPanel({
   /// Which shape's chrome the panel is dressed in. Sharp by default, because
   /// that is what every behaviour test wants to assert against; a test about
   /// Round's own geometry asks for it.
-  ThemeShape shape = ThemeShape.sharp,
+  ThemeShape shape = ThemeShape.studio,
 
   /// How much room a row gets. Regular by default, because that is
   /// what the editor ships as and what every mockup renders; a test about the
@@ -206,8 +206,10 @@ class _StopsPreviewProgressState extends State<_StopsPreviewProgress> {
 /// A fresh engine-backed project and its UI state.
 ///
 /// Each call makes a new project with its own id, so tests do not collide in the
-/// engine's process-wide registry — but no test may call `openProject`, which
-/// clears that registry wholesale.
+/// engine's process-wide registry — but `openProject` and an import clear that
+/// registry wholesale, and the registry is shared by every test file running
+/// in the process. A file that opens a project carries `@Tags(['opens-project'])`
+/// so CI runs it after the parallel batch, one at a time (`dart_test.yaml`).
 ({LumitState state, LumitUiState uiState}) freshProject() {
   final state = LumitState()..newProject();
   // A default workspace, deliberately NOT loaded from disk: `Workspace()..load()`
@@ -381,6 +383,10 @@ double stillValue(BridgeScalar scalar) => switch (scalar) {
 /// wrappers between them are not the point. Element traversal is depth-first
 /// from the bar's own `ValueKey`, which for a `Row` is left to right.
 List<String> barKeys(WidgetTester tester) => _keysUnder(tester, 'viewer-bar');
+
+/// The same for the Viewer's **deck**: the transport and everything about
+/// playing, under the picture.
+List<String> deckKeys(WidgetTester tester) => _keysUnder(tester, 'viewer-deck');
 
 /// The same for the Viewer's **header** strip: the three pickers the drawing
 /// puts at its right-hand end.

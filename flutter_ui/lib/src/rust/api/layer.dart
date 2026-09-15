@@ -5,6 +5,7 @@
 
 import '../api.dart';
 import '../frb_generated.dart';
+import '../lib.dart';
 import 'assets.dart';
 import 'composition.dart';
 import 'effect.dart';
@@ -21,9 +22,9 @@ import 'solid.dart';
 import 'state.dart';
 part 'layer.freezed.dart';
 
-// These functions are ignored because they are not marked as `pub`: `bands_of`, `bridge_clip`, `bridge_kind`, `bridge_switches`, `clamped_property`, `clip_ops`, `clip_source_duration`, `clip_under`, `clips_and_index`, `commit_clips_with_offset`, `commit_clips`, `commit_masks`, `commit_paint`, `commit_puppet`, `commit_shape_items`, `commit`, `comp_time`, `composition`, `core`, `core`, `core`, `core`, `core`, `document`, `edit_shape_item`, `empty`, `empty`, `exr_path`, `graph_inputs_for`, `instance_home`, `is_graph_inputs`, `item`, `layer_time_of_frame`, `map_end_value`, `of`, `of`, `of`, `of`, `placed_graph_of`, `placed`, `project`, `rational_of`, `read_at`, `read_at`, `read_at`, `read_at`, `read_at`, `read_at`, `read_layer_info`, `read_layer`, `read`, `read`, `read`, `reanchored_span`, `reload_extract_channels`, `retime_or_identity`, `seed_extract_channels`, `source_length`, `unretime_op`, `with_effects`, `with_instances`, `write_at`, `write_at`, `write_at`, `write_at`, `write_fade`, `write_item_over`, `write_item`, `write_layer`, `write_over`, `write`, `write`, `write`, `write`
+// These functions are ignored because they are not marked as `pub`: `bands_of`, `bridge_clip`, `bridge_kind`, `bridge_switches`, `clamped_property`, `clip_ops`, `clip_source_duration`, `clip_under`, `clips_and_index`, `commit_clips_with_offset`, `commit_clips`, `commit_masks`, `commit_paint`, `commit_puppet`, `commit_shape_items`, `commit`, `comp_time`, `composition`, `core`, `core`, `core`, `core`, `core`, `document`, `edit_shape_item`, `empty`, `empty`, `exr_path`, `graph_inputs_for`, `instance_home`, `is_graph_inputs`, `item`, `layer_time_of_frame`, `map_end_value`, `motion_path_of`, `of`, `of`, `of`, `of`, `placed_graph_of`, `placed`, `project`, `rational_of`, `read_at`, `read_at`, `read_at`, `read_at`, `read_at`, `read_at`, `read_layer_info`, `read_layer`, `read`, `read`, `read`, `reanchored_span`, `reload_extract_channels`, `retime_or_identity`, `seed_extract_channels`, `source_length`, `unretime_op`, `with_effects`, `with_instances`, `write_at`, `write_at`, `write_at`, `write_at`, `write_fade`, `write_item_over`, `write_item`, `write_layer`, `write_over`, `write`, `write`, `write`, `write`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `InstanceHome`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `try_from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `try_from`
 // These functions are ignored (category: IgnoreBecauseExplicitAttribute): `comp_id`, `id`, `new`, `project_id`
 
 /// Where a fixed view looks from, for a comp of this size
@@ -1201,6 +1202,101 @@ class BridgeMatte {
           layer == other.layer &&
           luma == other.luma &&
           inverted == other.inverted;
+}
+
+/// One keyframe on a layer's **motion path** (docs/07 §2.4): where the
+/// layer's Position is at that key, in comp pixels, and the handles its eases
+/// draw as.
+///
+/// Position is two scalar curves, x and y, each keyed on its own (docs/03
+/// §6.5), so a dot on the path is a *time* at which either axis has a key;
+/// `x_index` and `y_index` say which key of each list sits there, and a drag
+/// of the dot writes only the axes that have one.
+class BridgeMotionKey {
+  /// Comp time, carried out by the layer's start offset as every key is.
+  final BridgeRational time;
+  final PlatformInt64 frame;
+  final double x;
+  final double y;
+  final int? xIndex;
+  final int? yIndex;
+
+  /// The tangent handles in comp pixels: on each side, the first control
+  /// point of the two axes' cubics across the neighbouring span, which is
+  /// the spatial handle an eased key would carry if the axes were coupled.
+  /// `None` where both axes are straight or held on that side, where the
+  /// key is an end, or where one axis has no key at this time.
+  final F64Array2? handleIn;
+  final F64Array2? handleOut;
+
+  const BridgeMotionKey({
+    required this.time,
+    required this.frame,
+    required this.x,
+    required this.y,
+    this.xIndex,
+    this.yIndex,
+    this.handleIn,
+    this.handleOut,
+  });
+
+  @override
+  int get hashCode =>
+      time.hashCode ^
+      frame.hashCode ^
+      x.hashCode ^
+      y.hashCode ^
+      xIndex.hashCode ^
+      yIndex.hashCode ^
+      handleIn.hashCode ^
+      handleOut.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeMotionKey &&
+          runtimeType == other.runtimeType &&
+          time == other.time &&
+          frame == other.frame &&
+          x == other.x &&
+          y == other.y &&
+          xIndex == other.xIndex &&
+          yIndex == other.yIndex &&
+          handleIn == other.handleIn &&
+          handleOut == other.handleOut;
+}
+
+/// A layer's motion path as the Viewer draws it: Position sampled by the
+/// engine once per comp frame across the keyed range, and the keys on it.
+///
+/// Sampled here rather than in Dart so the line over the picture is the curve
+/// the render follows, automatic tangents and expressions included.
+class BridgeMotionPath {
+  /// The comp frame of the first sample; one sample per frame follows.
+  final PlatformInt64 firstFrame;
+
+  /// x and y interleaved, in comp pixels: `samples[2 * i]` and
+  /// `samples[2 * i + 1]` are the position at `first_frame + i`.
+  final Float64List samples;
+  final List<BridgeMotionKey> keys;
+
+  const BridgeMotionPath({
+    required this.firstFrame,
+    required this.samples,
+    required this.keys,
+  });
+
+  @override
+  int get hashCode => firstFrame.hashCode ^ samples.hashCode ^ keys.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeMotionPath &&
+          runtimeType == other.runtimeType &&
+          firstFrame == other.firstFrame &&
+          samples == other.samples &&
+          keys == other.keys;
 }
 
 /// What a paint stroke does to the pixels under it.
@@ -2540,6 +2636,30 @@ class LayerReference {
       BridgeLib.instance.api.crateApiLayerLayerReferenceFadeOut(
           that: this, seconds: seconds, shape: shape);
 
+  /// Whether the model engine is painting this layer, and what stands in its
+  /// way when it is not.
+  ///
+  /// Asked of the layer rather than of the machine, because one of the
+  /// answers is about the layer's own footage: a scene-linear source is
+  /// something the model was never trained on, and the layer beside it on
+  /// ordinary rushes is painted by the model all the same. A machine-wide
+  /// answer would put one layer's sentence on another layer's row.
+  ///
+  /// Read on the row rather than polled: the answer changes when the user
+  /// installs an addon or draws a frame, not while they scrub. The installed
+  /// packs are a snapshot the store keeps in memory, taken again only when
+  /// the addons folder changes, and the refusal is whatever the last frame
+  /// that asked for a model recorded.
+  ///
+  /// Preview substitutes the built-in engine and the row says so; an export
+  /// whose document names a model this machine cannot run refuses to start,
+  /// and one whose model gives up part way abandons the file
+  /// (docs/08 §3.1: an export never silently downgrades).
+  BridgeFlowEngineState flowEngineState() =>
+      BridgeLib.instance.api.crateApiLayerLayerReferenceFlowEngineState(
+        that: this,
+      );
+
   /// **Insert a freeze at the playhead** (docs/04 §7.3,
   /// `retime.freeze_at_playhead`): the moment showing at `frame` is held for
   /// one second, everything after it is pushed that far later, and the map is
@@ -2911,6 +3031,20 @@ class LayerReference {
   /// additions. Only text that is not a preset at all is refused.
   void loadPreset({required String text}) => BridgeLib.instance.api
       .crateApiLayerLayerReferenceLoadPreset(that: this, text: text);
+
+  /// This layer's **motion path** (docs/07 §2.4), or `None` while its
+  /// Position is still — see [`motion_path_of`].
+  ///
+  /// A read of its own rather than a field of the comp read model: the
+  /// path is drawn only for the outlined layers and changes only with the
+  /// document, so the Viewer asks once per outlined layer per revision and
+  /// holds the answer. The value under the playhead is not in here either;
+  /// the Viewer samples that through `sample_scalars`, in the one batched
+  /// crossing the Timeline's rows already make per frame.
+  BridgeMotionPath? motionPath() =>
+      BridgeLib.instance.api.crateApiLayerLayerReferenceMotionPath(
+        that: this,
+      );
 
   /// Move a clip to `to_frame`, on this layer, on `target`, or onto a row
   /// of its own.
@@ -3415,10 +3549,13 @@ class LayerReference {
   /// the graph editor commits when a handle is dragged, and what a lane drag
   /// of several keys at once needs.
   ///
-  /// `keys` must name every key the mask has, in order; their `value` is
+  /// `keys` names every key the mask has, in order; their `value` is
   /// ignored, because a path key holds a shape rather than a number. Refused
   /// as a whole if the times are not strictly ascending: the evaluator walks
   /// the list assuming they are, and a half-applied reorder is not a mask.
+  ///
+  /// A shorter list is a delete. Each key it names is found by its time, and
+  /// the rest go. Deleting the last key leaves the shape that key held.
   bool setMaskPathKeys(
           {required UuidValue id, required List<BridgeKeyframe> keys}) =>
       BridgeLib.instance.api.crateApiLayerLayerReferenceSetMaskPathKeys(

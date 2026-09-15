@@ -132,7 +132,6 @@ pub fn glow(
         h,
         &GlowHalo {
             radius_px,
-            octaves: 1,
             falloff: 0.0,
             chromatic_px: 0.0,
             fringe_angle_deg: 0.0,
@@ -149,23 +148,16 @@ pub fn glow(
     );
 }
 
-/// How a glow's halo is built (docs/08 §3.3): the widest gaussian, how many
-/// octaves are stacked under it, the falloff between them, and the fringe left
-/// on the finished halo. One octave and no fringe is the plain bloom
+/// How a glow's halo is built (docs/08 §3.3): its size, its falloff, and the
+/// fringe left on the finished halo. Falloff 0 and no fringe is the plain bloom
 /// [`glow`] asks for, to the byte.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GlowHalo {
-    /// The widest gaussian's half-width, raster pixels.
+    /// The halo's size, raster pixels: twice the gaussian's σ, and the radius
+    /// an exponential halo keeps the same share of its light inside.
     pub radius_px: f32,
-    /// How many gaussians the halo is summed from. Octave `i` is blurred at
-    /// `radius ÷ 2ⁱ`, so 1 is the single gaussian and 5 reaches a sixteenth of
-    /// the radius.
-    pub octaves: u32,
-    /// How much of the weight each octave takes from the wider one above it:
-    /// octave `i` weighs `falloff^i` before the stack is normalised, so the
-    /// tightest gaussian carries the most light and the halo falls away from a
-    /// bright core instead of spreading evenly. Zero leaves the widest octave
-    /// holding everything, which is the single gaussian. Ignored at one octave.
+    /// 0 is the gaussian. Above 0 the halo is a sum of round exponentials, see
+    /// [`glow_octaves`], and higher sends more of the light further out.
     pub falloff: f32,
     /// How far the finished halo's channels are displaced, raster pixels. The
     /// same everywhere in the frame, so the colour lands on the bloom's edges.
@@ -196,22 +188,14 @@ pub const HALO_FRINGE_TINTS: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], 
 pub const HALO_FRINGE_SCALE: [f32; 3] = [1.0, 0.0, 1.0];
 
 /// [`glow`] with the halo shaped rather than left as one gaussian (docs/08
-/// §3.3). The §1.6 oracle for **Exponential** and **Chromatic aberration**.
+/// §3.3). The §1.6 oracle for **Falloff** and **Chromatic aberration**.
 ///
-/// # The octave stack
+/// # Falloff
 ///
-/// A single gaussian spreads a highlight evenly, which is the flat grey mush a
-/// wide bloom turns into. Real light falls away from a bright core: most of it
-/// stays near the source and a little of it reaches a long way. Summing
-/// gaussians at `radius ÷ 2ⁱ`, each weighted `falloff^i` so the tightest weighs
-/// most, draws that shape with the blur that is already here. The stack
-/// is a running weighted mean, `light = light·(1 − t) + octave·t` with
-/// `t = wᵢ ÷ Σw`. That is one lerp an octave, and the same arithmetic the WGSL
-/// twin gets for nothing out of the blur kernel's own Mix.
-///
-/// Because the weights are normalised the stack holds the light the single
-/// gaussian held. A higher Falloff gathers it toward the core rather than
-/// adding any.
+/// At 0 the halo is a gaussian read far enough out that a bright highlight
+/// never shows where it stops, built by [`glow_gaussian`]. Above 0 it is a sum
+/// of round exponentials, which fall away at a steady rate and never end,
+/// built by [`glow_exponential`].
 ///
 /// # The fringe
 ///
@@ -256,24 +240,11 @@ pub fn glow_shaped(
             }
         }
     }
-    let mut light = seed.clone();
-    blur_gaussian(&mut light, w, h, halo.radius_px, 1, 1.0);
-    // The weight ratio between one octave and the next, walked as a running
-    // product rather than `falloff^i`. The WGSL twin walks it the same way, so
-    // the two agree on every octave's weight to the last bit.
-    let ratio = halo.falloff;
-    let (mut radius, mut wi, mut weight) = (halo.radius_px, 1.0f32, 1.0f32);
-    for _ in 1..halo.octaves {
-        radius *= 0.5;
-        wi *= ratio;
-        let t = wi / (weight + wi);
-        weight += wi;
-        let mut octave = seed.clone();
-        blur_gaussian(&mut octave, w, h, radius, 1, 1.0);
-        for (l, o) in light.iter_mut().zip(octave.iter()) {
-            *l = *l * (1.0 - t) + *o * t;
-        }
-    }
+    let mut light = if halo.falloff > 0.0 {
+        glow_exponential(&seed, w, h, halo.radius_px, halo.falloff)
+    } else {
+        glow_gaussian(&seed, w, h, &glow_gaussian_plan(halo.radius_px, w, h))
+    };
     if halo.chromatic_px > 0.0 {
         if halo.fringe_wavelength {
             spectral_split(
@@ -309,6 +280,319 @@ pub fn glow_shaped(
         }
         let a = (o[3] + intensity * hl[3]).min(1.0);
         rgba[i + 3] = o[3] * (1.0 - mix) + a * mix;
+    }
+}
+
+/// How far out a glow's gaussian is read, in σ. The kernel is down to e⁻¹⁸ of
+/// its peak there, so even a very bright highlight never shows the square the
+/// two passes would otherwise stop in.
+pub const GLOW_GAUSS_REACH: f32 = 6.0;
+
+/// A glow's gaussian at Falloff 0, as both render paths run it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GlowGaussian {
+    /// The grid it is blurred on, in full-size pixels a texel: a quarter of σ,
+    /// so a wide glow reads 6σ out for no more than a narrow one costs.
+    pub step: f32,
+    /// σ in texels of that grid, less the little the tent already blurred.
+    pub sigma: f32,
+    /// How many texels out each pass reads.
+    pub reach: f32,
+}
+
+/// The gaussian behind a glow of `radius_px` at Falloff 0 on a `w × h`
+/// picture. σ is half the Radius, as it always was.
+pub fn glow_gaussian_plan(radius_px: f32, w: u32, h: u32) -> GlowGaussian {
+    let sigma = radius_px.max(0.0) * 0.5;
+    let step = (sigma * 0.25).clamp(1.0, (2.0 * w.max(h) as f32).max(1.0));
+    // The tent is a blur of its own, step² ÷ 6 of variance an axis, so the grid
+    // takes that back off and the finished halo keeps its width.
+    let grid_sigma = if step > 1.0 {
+        (sigma * sigma - step * step / 6.0).max(0.0).sqrt() / step
+    } else {
+        sigma
+    };
+    GlowGaussian {
+        step,
+        sigma: grid_sigma.max(1e-3),
+        // Only a capped step reads further than 24, and its grid is one texel.
+        reach: (GLOW_GAUSS_REACH * sigma / step).min(4.0 * GLOW_GAUSS_REACH),
+    }
+}
+
+/// The halo at Falloff 0 (docs/08 §3.3): the bright pass tent-sampled onto a
+/// grid, blurred there by the same two passes as Gaussian blur, and scaled back
+/// up through a Catmull-Rom filter. At a Radius of 8 or less the grid is the
+/// picture itself.
+pub fn glow_gaussian(seed: &[f32], w: u32, h: u32, g: &GlowGaussian) -> Vec<f32> {
+    let (fw, fh) = (w as usize, h as usize);
+    let (cw, ch) = (glow_grid(w, g.step) as usize, glow_grid(h, g.step) as usize);
+    let across = glow_tent(seed, (fw, fh), (cw, fh), g.step, true);
+    let coarse = glow_tent(&across, (cw, fh), (cw, ch), g.step, false);
+    let lit = glow_gauss_pass(&coarse, cw, ch, g, false);
+    let lit = glow_gauss_pass(&lit, cw, ch, g, true);
+    let mut halo = vec![0.0f32; seed.len()];
+    glow_up_add(&mut halo, (fw, fh), &lit, (cw, ch), g.step, 1.0);
+    halo
+}
+
+/// One axis of `fx_blur.wgsl` with σ and reach set apart, edges repeated.
+fn glow_gauss_pass(src: &[f32], w: usize, h: usize, g: &GlowGaussian, down: bool) -> Vec<f32> {
+    let r = g.reach.ceil() as i32;
+    let weights: Vec<f32> = (-r..=r)
+        .map(|i| {
+            let d = i as f32 / g.sigma.max(1e-3);
+            (-0.5 * d * d).exp()
+        })
+        .collect();
+    // Added up in tap order, as the WGSL loop adds them.
+    let wsum = weights.iter().fold(0.0f32, |a, b| a + b);
+    let mut out = vec![0.0f32; src.len()];
+    let len = if down { h } else { w } as i32;
+    for y in 0..h {
+        for x in 0..w {
+            let along = if down { y } else { x } as i32;
+            let mut acc = [0.0f32; 4];
+            for (k, wt) in weights.iter().enumerate() {
+                let q = (along + k as i32 - r).clamp(0, len - 1) as usize;
+                let s = if down {
+                    (q * w + x) * 4
+                } else {
+                    (y * w + q) * 4
+                };
+                for c in 0..4 {
+                    acc[c] += src[s + c] * wt;
+                }
+            }
+            let d = (y * w + x) * 4;
+            for c in 0..4 {
+                out[d + c] = acc[c] / wsum;
+            }
+        }
+    }
+    out
+}
+
+/// How many exponentials a halo with Falloff is summed from, each twice as
+/// wide as the one before it.
+pub const GLOW_OCTAVES: usize = 5;
+
+/// The first exponential's decay length for each pixel of Radius. It keeps
+/// the same share of the light inside Radius as the gaussian does (1 − e⁻²),
+/// so turning Falloff on doesn't change how big the glow looks.
+pub const GLOW_CORE: f32 = 0.285_287;
+
+/// How far out each exponential is read, in decay lengths. It fades to nothing
+/// over the last third so even a very bright halo never shows where it stops.
+pub const GLOW_REACH: f32 = 16.0;
+
+/// One exponential of a halo with Falloff, as both render paths run it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GlowOctave {
+    /// The grid it is worked out on, in full-size pixels a texel. One decay
+    /// length, so the cost doesn't grow with the size of the glow.
+    pub step: f32,
+    /// The decay length in texels of that grid.
+    pub lambda: f32,
+    /// How many texels out the convolution reads.
+    pub taps: i32,
+    /// Its share of the halo's light. The five add up to one.
+    pub weight: f32,
+}
+
+/// The five exponentials behind a halo of `radius_px` and `falloff` on a
+/// `w × h` picture. Each one is twice as wide as the last and gets
+/// `falloff ÷ (1 + falloff)` of the light the one before it got, so a higher
+/// Falloff sends more light further out. Shared by the CPU and the WGSL paths
+/// so they walk the same numbers.
+pub fn glow_octaves(radius_px: f32, falloff: f32, w: u32, h: u32) -> [GlowOctave; GLOW_OCTAVES] {
+    // Written this way round so an infinite Falloff is 1 rather than NaN.
+    let ratio = 1.0 - 1.0 / (1.0 + falloff.max(0.0));
+    // Past twice the picture the grid is one texel either way, and a bigger
+    // step would only make the tent pass longer.
+    let cap = (2.0 * w.max(h) as f32).max(1.0);
+    let mut lambda = radius_px.max(0.0) * GLOW_CORE;
+    let (mut share, mut total) = (1.0f32, 0.0f32);
+    let mut out = [GlowOctave {
+        step: 1.0,
+        lambda: 0.0,
+        taps: 0,
+        weight: 0.0,
+    }; GLOW_OCTAVES];
+    for o in &mut out {
+        let step = lambda.clamp(1.0, cap);
+        let l = (lambda / step).max(1e-3);
+        *o = GlowOctave {
+            step,
+            lambda: l,
+            taps: ((GLOW_REACH * l).ceil() as i32).min(GLOW_REACH as i32),
+            weight: share,
+        };
+        total += share;
+        share *= ratio;
+        lambda *= 2.0;
+    }
+    for o in &mut out {
+        o.weight /= total;
+    }
+    out
+}
+
+/// How many texels a side of `n` pixels makes at `step`.
+pub fn glow_grid(n: u32, step: f32) -> u32 {
+    ((n as f32 / step).ceil() as u32).max(1)
+}
+
+/// The halo for a Falloff above 0 (docs/08 §3.3). Each exponential is
+/// tent-sampled onto its own grid, convolved there with a round exponential,
+/// and added back up to full size through a Catmull-Rom filter. The WGSL twin
+/// is `fx_glow_exp.wgsl`, pass for pass.
+pub fn glow_exponential(seed: &[f32], w: u32, h: u32, radius_px: f32, falloff: f32) -> Vec<f32> {
+    let (fw, fh) = (w as usize, h as usize);
+    let mut halo = vec![0.0f32; seed.len()];
+    for o in glow_octaves(radius_px, falloff, w, h) {
+        let (cw, ch) = (glow_grid(w, o.step) as usize, glow_grid(h, o.step) as usize);
+        let across = glow_tent(seed, (fw, fh), (cw, fh), o.step, true);
+        let coarse = glow_tent(&across, (cw, fh), (cw, ch), o.step, false);
+        let lit = glow_exp_conv(&coarse, cw, ch, &o);
+        glow_up_add(&mut halo, (fw, fh), &lit, (cw, ch), o.step, o.weight);
+    }
+    halo
+}
+
+/// One axis of the tent that shrinks a picture onto a grid `step` pixels
+/// apart. A tent rather than a box so a light between two texels splits
+/// between them and doesn't jump from one to the other as it moves.
+fn glow_tent(
+    src: &[f32],
+    (sw, sh): (usize, usize),
+    (dw, dh): (usize, usize),
+    step: f32,
+    across: bool,
+) -> Vec<f32> {
+    let mut out = vec![0.0f32; dw * dh * 4];
+    let len = (if across { sw } else { sh }) as i32;
+    for y in 0..dh {
+        for x in 0..dw {
+            let j = if across { x } else { y };
+            let c = (j as f32 + 0.5) * step - 0.5;
+            let lo = (c - step).floor() as i32 + 1;
+            let hi = (c + step).ceil() as i32 - 1;
+            let (mut acc, mut ws) = ([0.0f32; 4], 0.0f32);
+            for i in lo..=hi {
+                let wt = 1.0 - (i as f32 - c).abs() / step;
+                if wt > 0.0 {
+                    let k = i.clamp(0, len - 1) as usize;
+                    let s = if across {
+                        (y * sw + k) * 4
+                    } else {
+                        (k * sw + x) * 4
+                    };
+                    for ch in 0..4 {
+                        acc[ch] += wt * src[s + ch];
+                    }
+                    ws += wt;
+                }
+            }
+            let d = (y * dw + x) * 4;
+            for ch in 0..4 {
+                out[d + ch] = acc[ch] / ws;
+            }
+        }
+    }
+    out
+}
+
+/// The round exponential on one grid, edges repeated like the gaussian's.
+fn glow_exp_conv(src: &[f32], w: usize, h: usize, o: &GlowOctave) -> Vec<f32> {
+    // The weights don't depend on the pixel, so they are worked out once, in
+    // the order the WGSL loop adds them up.
+    let mut taps = Vec::new();
+    let mut ws = 0.0f32;
+    for dy in -o.taps..=o.taps {
+        for dx in -o.taps..=o.taps {
+            let r = ((dx * dx + dy * dy) as f32).sqrt();
+            // The same product the GPU is handed, so the fade lands on the same tap.
+            let q = r / (GLOW_REACH * o.lambda);
+            if q < 1.0 {
+                let s = (q * 3.0 - 2.0).clamp(0.0, 1.0);
+                let wt = (-r / o.lambda).exp() * (1.0 - s * s * (3.0 - 2.0 * s));
+                taps.push((dx, dy, wt));
+                ws += wt;
+            }
+        }
+    }
+    let mut out = vec![0.0f32; src.len()];
+    for y in 0..h as i32 {
+        for x in 0..w as i32 {
+            let mut acc = [0.0f32; 4];
+            for &(dx, dy, wt) in &taps {
+                let sx = (x + dx).clamp(0, w as i32 - 1) as usize;
+                let sy = (y + dy).clamp(0, h as i32 - 1) as usize;
+                let s = (sy * w + sx) * 4;
+                for ch in 0..4 {
+                    acc[ch] += wt * src[s + ch];
+                }
+            }
+            let d = (y as usize * w + x as usize) * 4;
+            for ch in 0..4 {
+                out[d + ch] = acc[ch] / ws;
+            }
+        }
+    }
+    out
+}
+
+/// The Catmull-Rom weight at `t` texels. Sharper than bilinear, so the grid
+/// doesn't soften the exponential's shape on the way back up.
+fn catmull_rom(t: f32) -> f32 {
+    let a = t.abs();
+    if a < 1.0 {
+        (1.5 * a - 2.5) * a * a + 1.0
+    } else if a < 2.0 {
+        ((-0.5 * a + 2.5) * a - 4.0) * a + 2.0
+    } else {
+        0.0
+    }
+}
+
+/// Scales one grid back up to full size and adds its share onto the halo.
+/// Catmull-Rom can dip below zero next to a sharp change, and a halo never
+/// takes light away, so that is clipped.
+fn glow_up_add(
+    halo: &mut [f32],
+    (w, h): (usize, usize),
+    src: &[f32],
+    (cw, ch): (usize, usize),
+    step: f32,
+    weight: f32,
+) {
+    for y in 0..h {
+        let v = (y as f32 + 0.5) / step - 0.5;
+        let jy = v.floor();
+        let fy = v - jy;
+        for x in 0..w {
+            let u = (x as f32 + 0.5) / step - 0.5;
+            let jx = u.floor();
+            let fx = u - jx;
+            let mut acc = [0.0f32; 4];
+            for ky in 0..4i32 {
+                let wy = catmull_rom(fy - (ky - 1) as f32);
+                for kx in 0..4i32 {
+                    let wx = catmull_rom(fx - (kx - 1) as f32);
+                    let sx = (jx as i32 + kx - 1).clamp(0, cw as i32 - 1) as usize;
+                    let sy = (jy as i32 + ky - 1).clamp(0, ch as i32 - 1) as usize;
+                    let s = (sy * cw + sx) * 4;
+                    for c in 0..4 {
+                        acc[c] += (wx * wy) * src[s + c];
+                    }
+                }
+            }
+            let d = (y * w + x) * 4;
+            for c in 0..4 {
+                halo[d + c] += weight * acc[c].max(0.0);
+            }
+        }
     }
 }
 

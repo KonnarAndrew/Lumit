@@ -15,6 +15,9 @@
 // `openProject` clears the engine's project registry, so this file stands
 // alone, exactly as `session_restore_frb_test.dart` does.
 
+@Tags(['opens-project'])
+library;
+
 import 'dart:io';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';

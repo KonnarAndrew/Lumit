@@ -540,11 +540,15 @@ jobs:
       # Dart import); `-p lumit-bridge` matches nothing and errors.
       - name: Build the bridge (liblumit_bridge.so)
         run: cargo build -p lumit_bridge
-      # One test process at a time. The frb suites share a single engine per
-      # process and Flutter's default fans test files out across cores, so a
-      # parallel run had them contending for it — a different one or two failing
-      # per run, each passing alone (docs/TODO.md). Serial is a few minutes
-      # slower and it is the difference between a gate and a coin toss.
+      # Two passes. Flutter fans test files out across cores as isolates of one
+      # process, and the frb suites share one engine in that process. Opening
+      # or importing a project clears the engine's project registry wholesale
+      # (`adopt` in `api/state.rs`), so an open in one file forgets every other
+      # file's projects mid-test: the session-restore test lost its arrangement
+      # a few times a day this way, a different victim per run, each passing
+      # alone. The files that open a project are tagged `opens-project`
+      # (`dart_test.yaml`); everything else runs in parallel first, then those
+      # run one at a time with nothing left to forget.
       #
       # `LUMIT_NO_ZERO_COPY_VIEWER` declares this runner transportless. It has
       # no GPU: wgpu lands on Mesa's lavapipe, whose `vkAllocateMemory` refuses
@@ -553,16 +557,20 @@ jobs:
       # only transport, so the six tests that wait for a frame skip
       # here — see `test/frb/frb_test_support.dart`.
       #
-      # --concurrency=1 was the mitigation while every test process leaked one
-      # engine worker and GPU device per test: parallel processes together
-      # exhausted the runner. ProjectReference::close() ended the pile-up
-      # (70017d2b), and four frb files run green in parallel on a real machine
-      # — this branch is the Linux proof.
+      # --concurrency=1 for everything was the mitigation while every test
+      # process leaked one engine worker and GPU device per test: parallel
+      # processes together exhausted the runner. ProjectReference::close()
+      # ended the pile-up (70017d2b).
       - name: flutter test
         working-directory: flutter_ui
         env:
           LUMIT_NO_ZERO_COPY_VIEWER: "1"
-        run: flutter test
+        run: flutter test --exclude-tags opens-project
+      - name: flutter test (files that open a project, one at a time)
+        working-directory: flutter_ui
+        env:
+          LUMIT_NO_ZERO_COPY_VIEWER: "1"
+        run: flutter test --tags opens-project --concurrency=1
       # Lint the Linux DMA-BUF zero-copy Viewer path: the Vulkan/ash
       # export code in `lumit-gpu/src/shared_linux.rs` lives behind
       # `shared-texture-linux` and cfg(target_os = "linux"), so it is only ever
@@ -789,7 +797,9 @@ jobs:
           key: ffmpeg-${{ steps.ffmpeg.outputs.version }}
       # Engine crates must hold the line; the threshold may rise, never fall.
       # The FFmpeg-free engine crates are all gated (measured 83–99% locally).
-      # lumit-gpu is held out while its kernel tests skip on adapterless runners.
+      # lumit-gpu is held out while its kernel tests skip on adapterless runners,
+      # and lumit-ml for the same kind of reason: its inference half needs a model
+      # runtime no runner has.
       #
       # A new engine crate goes in this list as it is added. Three that did not
       # are here now: the bounded-ingress reader, the broker handshake and the
