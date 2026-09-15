@@ -4528,6 +4528,38 @@
       }
     }
   },
+  "keymapWheel": "Scroll wheel",
+  "@keymapWheel": {
+    "description": "Heading at the bottom of the Shortcuts page, over the rows that choose which modifier key changes what the scroll wheel does."
+  },
+  "keymapWheelAlt": "Alt",
+  "@keymapWheelAlt": {
+    "description": "Scroll wheel modifier choice: the Alt key (Option on a Mac)."
+  },
+  "keymapWheelCtrl": "Ctrl",
+  "@keymapWheelCtrl": {
+    "description": "Scroll wheel modifier choice: the Control key."
+  },
+  "keymapWheelDropperSample": "Dropper sample size",
+  "@keymapWheelDropperSample": {
+    "description": "Scroll wheel row: the modifier that grows or shrinks the colour dropper's sampled area in the Viewer."
+  },
+  "keymapWheelScrollSideways": "Scroll the Timeline sideways",
+  "@keymapWheelScrollSideways": {
+    "description": "Scroll wheel row: the modifier that scrolls the Timeline, Audio timeline and Graph editor left and right."
+  },
+  "keymapWheelShift": "Shift",
+  "@keymapWheelShift": {
+    "description": "Scroll wheel modifier choice: the Shift key."
+  },
+  "keymapWheelZoomTime": "Zoom the Timeline",
+  "@keymapWheelZoomTime": {
+    "description": "Scroll wheel row: the modifier that zooms time about the pointer in the Timeline, Audio timeline and Graph editor."
+  },
+  "keymapWheelZoomValues": "Zoom graph values",
+  "@keymapWheelZoomValues": {
+    "description": "Scroll wheel row: the modifier that zooms the value axis in the Graph editor when auto fit is off."
+  },
   "languageFollowSystem": "Same as this machine",
   "@languageFollowSystem": {
     "description": "Language picker: the default, which follows the operating system's own language."

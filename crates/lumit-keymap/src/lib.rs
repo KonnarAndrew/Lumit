@@ -402,6 +402,104 @@ pub struct Keymap {
     /// was replaced on load.
     #[serde(default)]
     pub unbound: Vec<(KeyContext, ActionId)>,
+
+    /// Which modifier turns the scroll wheel into each of its actions. An older
+    /// file without it gets the shipped ones.
+    #[serde(default)]
+    pub wheel: WheelKeys,
+}
+
+/// A modifier held with the scroll wheel. Ctrl is the Control key on every
+/// platform, since that is what the wheel has always read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum WheelModifier {
+    Ctrl,
+    Alt,
+    Shift,
+}
+
+/// Something the scroll wheel does while a modifier is held.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum WheelAction {
+    /// Zoom time about the pointer, in the Timeline, Audio timeline and Graph editor.
+    ZoomTime,
+    /// Scroll the lanes sideways, in the same three places.
+    ScrollSideways,
+    /// Zoom the value axis in the Graph editor when auto fit is off.
+    ZoomValues,
+    /// Grow or shrink the dropper's sample in the Viewer.
+    DropperSample,
+}
+
+impl WheelAction {
+    /// Every wheel action, in the order Settings lists them.
+    pub const ALL: [WheelAction; 4] = [
+        WheelAction::ZoomTime,
+        WheelAction::ScrollSideways,
+        WheelAction::ZoomValues,
+        WheelAction::DropperSample,
+    ];
+
+    /// Whether both actions are live in one panel, so they can't share a modifier.
+    /// The first three all meet in the Graph editor, the dropper is on its own.
+    fn shares_a_panel_with(self, other: WheelAction) -> bool {
+        self != other && self != WheelAction::DropperSample && other != WheelAction::DropperSample
+    }
+}
+
+/// The modifier for each wheel action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WheelKeys {
+    pub zoom_time: WheelModifier,
+    pub scroll_sideways: WheelModifier,
+    pub zoom_values: WheelModifier,
+    pub dropper_sample: WheelModifier,
+}
+
+impl Default for WheelKeys {
+    fn default() -> Self {
+        WheelKeys {
+            zoom_time: WheelModifier::Ctrl,
+            scroll_sideways: WheelModifier::Shift,
+            zoom_values: WheelModifier::Alt,
+            dropper_sample: WheelModifier::Shift,
+        }
+    }
+}
+
+impl WheelKeys {
+    /// The modifier `action` answers to.
+    #[must_use]
+    pub fn modifier(&self, action: WheelAction) -> WheelModifier {
+        match action {
+            WheelAction::ZoomTime => self.zoom_time,
+            WheelAction::ScrollSideways => self.scroll_sideways,
+            WheelAction::ZoomValues => self.zoom_values,
+            WheelAction::DropperSample => self.dropper_sample,
+        }
+    }
+
+    fn slot(&mut self, action: WheelAction) -> &mut WheelModifier {
+        match action {
+            WheelAction::ZoomTime => &mut self.zoom_time,
+            WheelAction::ScrollSideways => &mut self.scroll_sideways,
+            WheelAction::ZoomValues => &mut self.zoom_values,
+            WheelAction::DropperSample => &mut self.dropper_sample,
+        }
+    }
+
+    /// Give `action` a new modifier. An action in the same panel already on it
+    /// takes the old one, so the two swap and the wheel never means two things.
+    pub fn set(&mut self, action: WheelAction, modifier: WheelModifier) {
+        let old = self.modifier(action);
+        for other in WheelAction::ALL {
+            if action.shares_a_panel_with(other) && self.modifier(other) == modifier {
+                *self.slot(other) = old;
+            }
+        }
+        *self.slot(action) = modifier;
+    }
 }
 
 impl Keymap {
@@ -836,6 +934,7 @@ pub fn default_keymap() -> Keymap {
     Keymap {
         bindings,
         unbound: Vec::new(),
+        wheel: WheelKeys::default(),
     }
 }
 
@@ -1351,6 +1450,70 @@ mod tests {
         assert!(json.contains("\"Shift+F3\""));
         let back: Keymap = serde_json::from_str(&json).unwrap();
         assert_eq!(back, km);
+    }
+
+    #[test]
+    fn the_wheel_modifiers_ship_as_the_spec_says_and_travel_in_the_file() {
+        let mut km = default_keymap();
+        assert_eq!(
+            km.wheel.modifier(WheelAction::ZoomTime),
+            WheelModifier::Ctrl
+        );
+        assert_eq!(
+            km.wheel.modifier(WheelAction::ScrollSideways),
+            WheelModifier::Shift
+        );
+        assert_eq!(
+            km.wheel.modifier(WheelAction::ZoomValues),
+            WheelModifier::Alt
+        );
+        assert_eq!(
+            km.wheel.modifier(WheelAction::DropperSample),
+            WheelModifier::Shift
+        );
+
+        km.wheel.set(WheelAction::ZoomTime, WheelModifier::Alt);
+        let json = serde_json::to_string(&km).unwrap();
+        let back: Keymap = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            back.wheel.modifier(WheelAction::ZoomTime),
+            WheelModifier::Alt
+        );
+
+        // A file from before the wheel was remappable still reads.
+        let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        value.as_object_mut().unwrap().remove("wheel");
+        let older: Keymap = serde_json::from_value(value).unwrap();
+        assert_eq!(older.wheel, WheelKeys::default());
+    }
+
+    #[test]
+    fn taking_a_wheel_modifier_swaps_with_whatever_shares_the_panel() {
+        let mut wheel = WheelKeys::default();
+        // Alt+wheel for zooming time, the way After Effects does it.
+        wheel.set(WheelAction::ZoomTime, WheelModifier::Alt);
+        assert_eq!(wheel.modifier(WheelAction::ZoomTime), WheelModifier::Alt);
+        assert_eq!(
+            wheel.modifier(WheelAction::ZoomValues),
+            WheelModifier::Ctrl,
+            "the Graph editor's value zoom takes the freed Ctrl"
+        );
+        assert_eq!(
+            wheel.modifier(WheelAction::ScrollSideways),
+            WheelModifier::Shift
+        );
+        // The dropper lives in the Viewer, so it can share Shift with the lanes.
+        wheel.set(WheelAction::ScrollSideways, WheelModifier::Ctrl);
+        assert_eq!(
+            wheel.modifier(WheelAction::ZoomValues),
+            WheelModifier::Shift
+        );
+        assert_eq!(
+            wheel.modifier(WheelAction::DropperSample),
+            WheelModifier::Shift
+        );
+        wheel.set(WheelAction::DropperSample, WheelModifier::Alt);
+        assert_eq!(wheel.modifier(WheelAction::ZoomTime), WheelModifier::Alt);
     }
 
     /// Settings → Keymap shows a description, never a raw id, so every action

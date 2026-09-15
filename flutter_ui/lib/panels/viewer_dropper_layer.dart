@@ -7,13 +7,14 @@
 // Viewer's stage, which is the only thing that knows where the picture is.
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:lumit_flutter/main.dart';
 import 'package:lumit_flutter/src/rust/api/composition.dart';
+import 'package:lumit_flutter/src/rust/api/keymap.dart';
 import 'package:lumit_flutter/src/rust/api/state.dart';
 
 import '../state/dropper.dart';
+import '../state/keymap.dart';
 import '../state/preview_throttle.dart';
 import '../widgets/dropper_overlay.dart';
 import '../widgets/escape_ladder.dart';
@@ -222,12 +223,11 @@ class _DropperLayerState extends State<DropperLayer> {
           onPointerMove: (e) => _moved(e.localPosition, e.position),
           onPointerSignal: (e) {
             if (e is! PointerScrollEvent) return;
-            if (!HardwareKeyboard.instance.isShiftPressed) return;
-            // Shift turns the wheel horizontal on most platforms, so take
-            // whichever axis actually carries the motion — reading only the
-            // vertical delta is why the egui build's size never changed.
-            final d = e.scrollDelta;
-            final scroll = d.dy.abs() >= d.dx.abs() ? d.dy : d.dx;
+            if (!widget.uiState.keymap
+                .wheelHeld(BridgeWheelAction.dropperSample)) {
+              return;
+            }
+            final scroll = wheelDelta(e);
             if (scroll.abs() < 0.5) return;
             // Nothing is asked of the engine here: the window in hand already
             // holds every pixel a wider region could want.

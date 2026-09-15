@@ -7,8 +7,8 @@ import '../api.dart';
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `preset_map`, `row`, `with_keymap`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`
+// These functions are ignored because they are not marked as `pub`: `preset_map`, `row`, `wheel_action`, `with_keymap`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`
 
 /// Every binding, grouped by context in the order the page lists them — the
 /// whole table in one call.
@@ -81,6 +81,18 @@ Future<List<BridgeKeymapGroup>> keymapResetBinding(
 Future<List<BridgeKeymapGroup>> keymapLoadPreset(
         {required BridgeKeymapPreset preset}) =>
     BridgeLib.instance.api.crateApiKeymapKeymapLoadPreset(preset: preset);
+
+/// Every wheel action with its modifier, in the order Settings lists them.
+List<BridgeWheelBinding> keymapWheel() =>
+    BridgeLib.instance.api.crateApiKeymapKeymapWheel();
+
+/// Give a wheel action a new modifier and hand back the section. Anything in the
+/// same panel already on that modifier swaps onto the old one.
+Future<List<BridgeWheelBinding>> keymapSetWheel(
+        {required BridgeWheelAction action,
+        required BridgeWheelModifier modifier}) =>
+    BridgeLib.instance.api
+        .crateApiKeymapKeymapSetWheel(action: action, modifier: modifier);
 
 /// The whole keymap as JSON — what the frontend stores between sessions and
 /// what "Export keymap…" writes to a file the user can share. One format for
@@ -259,5 +271,45 @@ enum BridgeKeymapPreset {
 
   /// The After Effects muscle-memory alternate.
   afterEffects,
+  ;
+}
+
+/// Something the scroll wheel does with a modifier held. Mirrors
+/// `lumit_keymap::WheelAction`.
+enum BridgeWheelAction {
+  zoomTime,
+  scrollSideways,
+  zoomValues,
+  dropperSample,
+  ;
+}
+
+/// One row of the Scroll wheel section.
+class BridgeWheelBinding {
+  final BridgeWheelAction action;
+  final BridgeWheelModifier modifier;
+
+  const BridgeWheelBinding({
+    required this.action,
+    required this.modifier,
+  });
+
+  @override
+  int get hashCode => action.hashCode ^ modifier.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BridgeWheelBinding &&
+          runtimeType == other.runtimeType &&
+          action == other.action &&
+          modifier == other.modifier;
+}
+
+/// A modifier held with the wheel. Ctrl is the Control key on every platform.
+enum BridgeWheelModifier {
+  ctrl,
+  alt,
+  shift,
   ;
 }

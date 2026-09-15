@@ -52,6 +52,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:lumit_flutter/main.dart';
+import 'package:lumit_flutter/src/rust/api/keymap.dart';
 import 'package:lumit_flutter/src/rust/api/audio.dart';
 import 'package:lumit_flutter/src/rust/api/composition.dart';
 import 'package:lumit_flutter/src/rust/api/footage.dart';
@@ -757,7 +758,7 @@ class _ViewerPanelFrbState extends State<ViewerViewSurface>
               // its sample region with it — zooming as well would move the
               // picture out from under the pixel being aimed at.
               if (ui.dropper.value != null &&
-                  HardwareKeyboard.instance.isShiftPressed) {
+                  ui.keymap.wheelHeld(BridgeWheelAction.dropperSample)) {
                 return;
               }
               _scrollZoom(event.localPosition, event.scrollDelta.dy,

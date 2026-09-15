@@ -40,6 +40,7 @@ import 'package:lumit_flutter/main.dart';
 import 'package:lumit_flutter/src/rust/api/composition.dart';
 import 'package:lumit_flutter/src/rust/api/effect.dart';
 import 'package:lumit_flutter/src/rust/api/keymap.dart';
+import 'package:lumit_flutter/state/keymap.dart';
 import 'package:lumit_flutter/src/rust/api/layer.dart';
 import 'package:lumit_flutter/src/rust/api/project_item.dart';
 import 'package:provider/provider.dart';
@@ -2988,10 +2989,10 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
   /// A modified wheel over the lanes (docs/07 §4.6). Ctrl zooms time about the
   /// pointer — the frame under the cursor stays under it — and Shift scrolls
   /// sideways. A plain wheel is not touched here, so it still reaches the
-  /// scrollable and moves the rows.
+  /// scrollable and moves the rows. Both modifiers are the user's to change.
   void _wheel(PointerScrollEvent event, double contentX, TimelineAxis axis) {
-    final keys = HardwareKeyboard.instance;
-    if (keys.isControlPressed) {
+    final keymap = Provider.of<LumitUiState>(context, listen: false).keymap;
+    if (keymap.wheelHeld(BridgeWheelAction.zoomTime)) {
       // What to hold still, in the numbers that are true *now*: which frame is
       // under the pointer, and where on screen the pointer is. The flight
       // re-applies these every tick, so the frame under the cursor stays under
@@ -2999,12 +3000,22 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
       _zoomAnchorViewportX = contentX - (_hLane.hasClients ? _hLane.offset : 0);
       _zoomAnchorFrame = axis.frameAtExact(contentX);
       _zoomMotion.nudge(
-        event.scrollDelta.dy < 0 ? 1.2 : 1 / 1.2,
+        wheelDelta(event) < 0 ? 1.2 : 1 / 1.2,
         duration: animationDuration(_animationLevel),
       );
       return;
     }
-    if (keys.isShiftPressed) _scrollBy(_hLane, event.scrollDelta.dy);
+    if (keymap.wheelHeld(BridgeWheelAction.scrollSideways)) {
+      _scrollBy(_hLane, wheelDelta(event));
+    }
+  }
+
+  /// Whether the wheel is held on a modifier the lanes act on. Only then is
+  /// the event claimed, so a plain wheel still scrolls the rows.
+  bool _wheelClaimed() {
+    final keymap = Provider.of<LumitUiState>(context, listen: false).keymap;
+    return keymap.wheelHeld(BridgeWheelAction.zoomTime) ||
+        keymap.wheelHeld(BridgeWheelAction.scrollSideways);
   }
 
   /// Scroll a controller by [by], stopping at either end. A controller with no
@@ -4309,6 +4320,7 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
                       onKeysSelected: _onLaneKeysSelected,
                       onKeyMenu: _laneKeyMenu,
                       onWheel: (e, x) => _wheel(e, x, axis),
+                      wheelClaimed: _wheelClaimed,
                       onPan: _panLanes,
                       onSeek: (f) =>
                           ui.scrubTo(f.clamp(0, frames == 0 ? 0 : frames - 1)),

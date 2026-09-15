@@ -16,11 +16,13 @@
 // inside it.
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart' show PointerScrollEvent;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' show SingleActivator;
 import 'package:flutter_rust_bridge/flutter_rust_bridge.dart';
 
 import '../src/rust/api/keymap.dart';
+import 'os_keys.dart';
 import 'workspace.dart';
 
 /// The keys the keymap names in words, by the logical key Flutter reports.
@@ -156,6 +158,13 @@ String chordLabel(String chord) {
       .replaceAll('Shift+', mac ? '⇧' : 'Shift+');
 }
 
+/// How far a wheel event moved, on whichever axis carries it. Some platforms
+/// turn a Shift+wheel sideways, and the modifier can be any of the three.
+double wheelDelta(PointerScrollEvent event) {
+  final d = event.scrollDelta;
+  return d.dy.abs() >= d.dx.abs() ? d.dy : d.dx;
+}
+
 /// The live keymap: the table Settings → Keymap draws, and the lookup every
 /// keypress goes through.
 ///
@@ -174,6 +183,7 @@ class KeymapState extends ChangeNotifier {
   List<BridgeKeymapGroup> _groups = const [];
   List<BridgeKeyConflict> _conflicts = const [];
   List<BridgeKeyShadow> _shadows = const [];
+  List<BridgeWheelBinding> _wheel = const [];
 
   /// The whole table, grouped by where each binding is live.
   List<BridgeKeymapGroup> get groups => _groups;
@@ -187,6 +197,33 @@ class KeymapState extends ChangeNotifier {
   /// because the app-wide meaning stops working in that one panel. The shipped
   /// keymap carries one on purpose (`L` in the Timeline).
   List<BridgeKeyShadow> get shadows => _shadows;
+
+  /// Which modifier turns the scroll wheel into each of its actions, as the
+  /// engine last answered.
+  List<BridgeWheelBinding> get wheel => _wheel;
+
+  /// Whether the modifier [action] answers to is held right now. Read from the
+  /// cached rows, so a wheel event never waits on the engine.
+  bool wheelHeld(BridgeWheelAction action) {
+    final keys = HardwareKeyboard.instance;
+    for (final row in _wheel) {
+      if (row.action != action) continue;
+      return switch (row.modifier) {
+        BridgeWheelModifier.ctrl => keys.isControlPressed,
+        BridgeWheelModifier.alt => altActuallyHeld(),
+        BridgeWheelModifier.shift => keys.isShiftPressed,
+      };
+    }
+    return false;
+  }
+
+  /// Give a wheel action a new modifier. Whatever shares its panel swaps.
+  Future<void> setWheel(
+      BridgeWheelAction action, BridgeWheelModifier modifier) async {
+    _wheel = await keymapSetWheel(action: action, modifier: modifier);
+    _store();
+    notifyListeners();
+  }
 
   /// The search text above the table. Held here rather than in the page so it
   /// survives the page being closed and reopened.
@@ -258,6 +295,7 @@ class KeymapState extends ChangeNotifier {
     _groups = keymapGroups();
     _conflicts = keymapConflicts();
     _shadows = keymapShadows();
+    _wheel = keymapWheel();
     notifyListeners();
   }
 
@@ -265,6 +303,7 @@ class KeymapState extends ChangeNotifier {
     _groups = groups;
     _conflicts = keymapConflicts();
     _shadows = keymapShadows();
+    _wheel = keymapWheel();
     _store();
     notifyListeners();
   }

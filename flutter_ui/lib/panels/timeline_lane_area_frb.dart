@@ -295,6 +295,9 @@ class LayerArea extends StatelessWidget {
   /// are left alone, so they still reach the scrollable.
   final void Function(PointerScrollEvent event, double contentX) onWheel;
 
+  /// Whether a modifier the lanes use with the wheel is held right now.
+  final bool Function() wheelClaimed;
+
   /// A middle-button drag over the lanes, in screen pixels.
   final void Function(Offset delta) onPan;
 
@@ -349,6 +352,7 @@ class LayerArea extends StatelessWidget {
     required this.fpsDen,
     required this.magnet,
     required this.onWheel,
+    required this.wheelClaimed,
     required this.onPan,
     required this.selectionMove,
   });
@@ -641,10 +645,7 @@ class LayerArea extends StatelessWidget {
                         // scrollable, which is what moves the rows (docs/07 §4.6).
                         onPointerSignal: (event) {
                           if (event is! PointerScrollEvent) return;
-                          final keys = HardwareKeyboard.instance;
-                          if (!keys.isControlPressed && !keys.isShiftPressed) {
-                            return;
-                          }
+                          if (!wheelClaimed()) return;
                           GestureBinding.instance.pointerSignalResolver
                               .register(event, (resolved) {
                             if (resolved is PointerScrollEvent) {

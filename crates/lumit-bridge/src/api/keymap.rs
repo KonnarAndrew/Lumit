@@ -25,7 +25,7 @@
 //! export a user mails to a friend — one format, two reasons to write it.
 
 use flutter_rust_bridge::frb;
-use lumit_keymap::{ActionId, Chord, KeyContext, Keymap};
+use lumit_keymap::{ActionId, Chord, KeyContext, Keymap, WheelAction, WheelModifier};
 use std::sync::{Mutex, OnceLock};
 
 use crate::api::BridgeError;
@@ -330,6 +330,84 @@ fn preset_map(preset: BridgeKeymapPreset) -> Keymap {
         BridgeKeymapPreset::Lumit => lumit_keymap::default_keymap(),
         BridgeKeymapPreset::AfterEffects => lumit_keymap::after_effects_preset(),
     }
+}
+
+/// Something the scroll wheel does with a modifier held. Mirrors
+/// `lumit_keymap::WheelAction`.
+#[frb(non_opaque)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BridgeWheelAction {
+    ZoomTime,
+    ScrollSideways,
+    ZoomValues,
+    DropperSample,
+}
+
+/// A modifier held with the wheel. Ctrl is the Control key on every platform.
+#[frb(non_opaque)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BridgeWheelModifier {
+    Ctrl,
+    Alt,
+    Shift,
+}
+
+/// One row of the Scroll wheel section.
+#[frb(non_opaque)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BridgeWheelBinding {
+    pub action: BridgeWheelAction,
+    pub modifier: BridgeWheelModifier,
+}
+
+#[frb(ignore)]
+fn wheel_action(action: BridgeWheelAction) -> WheelAction {
+    match action {
+        BridgeWheelAction::ZoomTime => WheelAction::ZoomTime,
+        BridgeWheelAction::ScrollSideways => WheelAction::ScrollSideways,
+        BridgeWheelAction::ZoomValues => WheelAction::ZoomValues,
+        BridgeWheelAction::DropperSample => WheelAction::DropperSample,
+    }
+}
+
+/// Every wheel action with its modifier, in the order Settings lists them.
+#[frb(sync)]
+#[must_use]
+pub fn keymap_wheel() -> Vec<BridgeWheelBinding> {
+    let actions = [
+        BridgeWheelAction::ZoomTime,
+        BridgeWheelAction::ScrollSideways,
+        BridgeWheelAction::ZoomValues,
+        BridgeWheelAction::DropperSample,
+    ];
+    with_keymap(|km| {
+        actions
+            .into_iter()
+            .map(|action| BridgeWheelBinding {
+                action,
+                modifier: match km.wheel.modifier(wheel_action(action)) {
+                    WheelModifier::Ctrl => BridgeWheelModifier::Ctrl,
+                    WheelModifier::Alt => BridgeWheelModifier::Alt,
+                    WheelModifier::Shift => BridgeWheelModifier::Shift,
+                },
+            })
+            .collect()
+    })
+}
+
+/// Give a wheel action a new modifier and hand back the section. Anything in the
+/// same panel already on that modifier swaps onto the old one.
+pub fn keymap_set_wheel(
+    action: BridgeWheelAction,
+    modifier: BridgeWheelModifier,
+) -> Vec<BridgeWheelBinding> {
+    let modifier = match modifier {
+        BridgeWheelModifier::Ctrl => WheelModifier::Ctrl,
+        BridgeWheelModifier::Alt => WheelModifier::Alt,
+        BridgeWheelModifier::Shift => WheelModifier::Shift,
+    };
+    with_keymap(|km| km.wheel.set(wheel_action(action), modifier));
+    keymap_wheel()
 }
 
 /// The whole keymap as JSON — what the frontend stores between sessions and
