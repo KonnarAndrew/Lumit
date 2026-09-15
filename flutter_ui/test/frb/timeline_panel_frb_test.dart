@@ -6093,6 +6093,34 @@ void main() {
           reason: 'Copy took the picked effect, not the layer under it');
     });
 
+    /// Delete on picked effect rows removes those effects and leaves the layer.
+    testWidgets('Delete removes picked effects and leaves their layer',
+        (tester) async {
+      final p = withComp();
+      final layer = p.comp.addSolidLayer();
+      layer.addEffect(name: 'blur');
+      layer.addEffect(name: 'blur');
+      layer.addEffect(name: 'blur');
+      p.uiState.setSelection([layer]);
+      await mount(tester, p);
+      final [first, second, kept] = layer.getEffects();
+
+      p.uiState.activePane.value = Panel.timeline.pane();
+      p.uiState.setEffectSelection(layer, [first.id(), second.id()]);
+      await tester.pump();
+      await settleFrb(tester, minRounds: 4);
+
+      expect(p.uiState.deleteClaim!(), isTrue,
+          reason: 'with effects picked the Timeline takes Delete');
+      await settleFrb(tester, minRounds: 4);
+
+      expect([for (final e in layer.getEffects()) e.id()], [kept.id()],
+          reason: 'both picked effects are gone, the other stays');
+      expect(p.comp.getLayers(), hasLength(1),
+          reason: 'and the layer is still there');
+      expect(p.uiState.selectedEffects.value, isEmpty);
+    });
+
     /// **A locked layer's property rows are read-only too.** The lock
     /// used to guard only the *gestures* — the bar, the razor, rename, reorder,
     /// delete — while the fold-out's transform, effect and volume rows went on
