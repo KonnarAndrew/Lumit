@@ -400,7 +400,7 @@ fn bake_values(
     /// may be pushed.
     struct Row<'a> {
         id: ParamId,
-        property: &'a lumit_core::anim::Property,
+        property: std::borrow::Cow<'a, lumit_core::anim::Property>,
         hard: (Option<f64>, Option<f64>),
     }
 
@@ -410,8 +410,13 @@ fn bake_values(
         .iter()
         .filter_map(|row| {
             let held = instance.params.iter().find(|p| p.id == row.id)?;
-            let EffectValue::Float(property) = &held.value else {
-                return None;
+            let property = match &held.value {
+                EffectValue::Float(property) => std::borrow::Cow::Borrowed(property),
+                // A switch goes to a plugin as nought or one.
+                EffectValue::Bool(on) => std::borrow::Cow::Owned(
+                    lumit_core::anim::Property::fixed(f64::from(u8::from(*on))),
+                ),
+                _ => return None,
             };
             Some(Row {
                 id: ParamId::new(row.id),
@@ -5212,6 +5217,35 @@ mod tests {
             }
         }
         instance
+    }
+
+    /// A switch row bakes as nought or one, so a plugin's stepped nought to one
+    /// parameter reaches it.
+    #[test]
+    fn a_switch_row_bakes_as_nought_or_one() {
+        use lumit_core::model::EffectValue;
+
+        let mut instance =
+            lumit_core::fx::instantiate("extract_channels").expect("a catalogue entry");
+        for param in &mut instance.params {
+            if param.id == "bypass" {
+                param.value = EffectValue::Bool(true);
+            }
+        }
+        let def = lumit_core::fx::BUILTIN_DEFS
+            .get("extract_channels")
+            .expect("a catalogue entry");
+        let chain = rack_of(Vec::new());
+        let baked = bake_values(&chain, &instance, def, 0, 1, 48_000);
+        let bypass = lumit_core::fx::ParamId::new("bypass");
+        assert_eq!(
+            baked
+                .first()
+                .and_then(|block| block.iter().find(|(id, _)| *id == bypass))
+                .map(|(_, value)| *value),
+            Some(1.0),
+            "the switch reaches the values handed to a plugin"
+        );
     }
 
     /// A rack of them.
