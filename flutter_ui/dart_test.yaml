@@ -1,0 +1,6 @@
+# Test files that open or import a project. Opening one clears the engine's
+# process-wide project registry, and `flutter test` runs files in parallel
+# isolates of one process, so an open in one file forgets every other file's
+# projects mid-test. CI runs these after the rest, one at a time.
+tags:
+  opens-project:

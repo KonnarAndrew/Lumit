@@ -20,6 +20,9 @@
 // request and that is seconds on a machine with no warm shader cache. The
 // waiting is what grew; every assertion is the one it always was.
 
+@Tags(['opens-project'])
+library;
+
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
