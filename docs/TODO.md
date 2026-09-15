@@ -8,27 +8,6 @@ lives. Delete a point when it lands, its regression test is the record.
 
 ## 1. Bugs
 
-- Delete on a picked effect row in the Timeline deletes the layer, not the effect
-  (`timeline_panel_frb.dart`, Delete goes keys, masks, layers).
-- Adding an effect puts it on every selected layer, it should go on one
-  (`menu_bar_frb.dart`, `effects_presets_panel_frb.dart`).
-- Double-clicking the relink badge opens New composition instead of relinking
-  (`project_row_frb.dart`).
-- Clicking a switch cell on a locked layer throws `LayerLocked` out of the tap
-  (`timeline_outline_row_frb.dart`). Refuse quietly, the way a locked sibling in a
-  multi-selection already does.
-- A hosted plugin's stepped parameter (bypass, mode) is saved but never sent. `kind_of`
-  makes it Bool and `bake_values` keeps Float rows only (`lumit-aplug/src/schema.rs`,
-  `lumit-render/src/export.rs`).
-- Some kernels guard a texture fetch instead of clamping it, so a pixel with every tap
-  outside can come back opaque: `fx_mirror`, `fx_lensdistort`, `fx_dropshadow`,
-  `fx_transform`, `fx_shake_mb`, `fx_dirblur`, `fx_radialblur`. Use `fx_warp`'s form.
-- A Precomp layer's audio effect rack does nothing, `audio_chain_of` only opens racks on
-  footage, Sequence and clip layers. Needs a bus stage in `MixPlan`.
-- A file FFmpeg can't open imports silently as footage with no picture. Carry the probe's
-  error to the row (`FootageReference::thumbnail`).
-- A relinked image sequence keeps its old frame-range name
-  (`FootageReference::relink`).
 - Linux Viewer resize can hand Dart a closed fd (`shared_linux.rs` `Drop`,
   `headless.rs` pool). Hold evicted targets one generation or `dup()` at export.
 - The panic hook only installs when the render worker starts, so a panic before a project
@@ -296,16 +275,5 @@ lives. Delete a point when it lands, its regression test is the record.
 - Should a project remember its panel layout? docs/07 §1.5 says it's per user.
 - A node's "at" toggle forgets itself when Lumit closes. Saving it would dirty the file.
 - What a point pair with only one half driven looks like.
-
-## Not to be built
-
-- A `flow/` disk tier. Reading a stored field is slower than measuring it.
-- A render worker pool. The CPU half of a frame measured 0.03 ms of 200 ms, re-run the
-  stopwatch before reaching for it again.
-- One scrollable for both halves of the Timeline. The ruler and outline can't both hold.
-- A ticked workspace preset after restart, the arrangement may no longer match.
-- Progress for the idle cache fill, nobody is waiting on it.
-- One analysis at a time when tracking, two disk-bound jobs halve each other.
-- A multi-frame lens rack is always a zoom Ramp, never a Cut.
-- A queued export renders the project as it was when queued, and share exports cap their
-  bitrate (docs/archive/flutter-port/06-REMAINING-WORK.md).
+- A Precomp layer's audio rack does nothing. Fixing it needs a bus stage, which docs/09 §1
+  and §7 rule out for v1. Build it and change the spec, or leave it?
