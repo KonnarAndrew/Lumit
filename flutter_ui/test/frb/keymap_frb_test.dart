@@ -8,6 +8,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -342,6 +343,88 @@ void main() {
 
       expect(find.text('Open the command palette'), findsOneWidget);
       expect(find.text('Play or pause'), findsNothing);
+    });
+
+    /// The scroll wheel section sits under the key table, and picking Alt for
+    /// the Timeline zoom hands its old Ctrl to the graph value zoom.
+    testWidgets('the scroll wheel modifiers are picked at the bottom',
+        (tester) async {
+      await openKeymapPage(tester);
+      final zoom = find.byKey(const ValueKey('keymap-wheel-zoomTime'));
+      // The very bottom of the page, past every key row.
+      await tester.scrollUntilVisible(
+        zoom,
+        600,
+        scrollable: find
+            .descendant(
+              of: find.byKey(const ValueKey('settings-body-shortcuts')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(zoom);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Alt').last);
+      BridgeWheelModifier modifier(BridgeWheelAction action) =>
+          keymapWheel().firstWhere((r) => r.action == action).modifier;
+      await settleFrb(
+        tester,
+        until: () =>
+            modifier(BridgeWheelAction.zoomTime) == BridgeWheelModifier.alt,
+      );
+
+      expect(modifier(BridgeWheelAction.zoomTime), BridgeWheelModifier.alt);
+      expect(modifier(BridgeWheelAction.zoomValues), BridgeWheelModifier.ctrl,
+          reason: 'both live in the Graph editor, so they swapped');
+    });
+  });
+
+  group('The scroll wheel (frb)', () {
+    /// Someone who wants Alt+wheel to zoom the Timeline gets exactly that, and
+    /// Ctrl+wheel stops zooming.
+    testWidgets('the Timeline zooms on whichever modifier is set',
+        (tester) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final p = freshProject();
+      final comp = p.state.project!.newComposition(name: 'Scene');
+      final layer = comp.addSolidLayer();
+      p.uiState.setSelectedComp(comp);
+      // A bridge future only lands on a real event-loop turn.
+      await tester.runAsync(() => keymapSetWheel(
+          action: BridgeWheelAction.zoomTime,
+          modifier: BridgeWheelModifier.alt));
+      p.uiState.keymap.refresh();
+
+      await tester.pumpWidget(hostPanel(
+        child: const TimelinePanelFrb(),
+        state: p.state,
+        uiState: p.uiState,
+        size: const Size(1400, 700),
+      ));
+      await tester.pumpAndSettle();
+
+      final bar = find.byKey(ValueKey<String>('tl-bar-${layer.internallayerId}'));
+      double width() => tester.getRect(bar).width;
+      final mouse = TestPointer(1, PointerDeviceKind.mouse);
+      Future<void> wheelWith(LogicalKeyboardKey key) async {
+        await tester.sendKeyDownEvent(key);
+        await tester.sendEventToBinding(mouse.hover(tester.getCenter(bar)));
+        await tester.sendEventToBinding(mouse.scroll(const Offset(0, -100)));
+        await tester.sendKeyUpEvent(key);
+        await tester.pumpAndSettle();
+      }
+
+      final before = width();
+      await wheelWith(LogicalKeyboardKey.controlLeft);
+      expect(width(), moreOrLessEquals(before, epsilon: 0.5),
+          reason: 'Ctrl no longer zooms once Alt has the job');
+
+      await wheelWith(LogicalKeyboardKey.altLeft);
+      expect(width(), greaterThan(before), reason: 'Alt+wheel zoomed in');
     });
   });
 

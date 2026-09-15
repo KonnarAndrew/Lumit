@@ -28,6 +28,7 @@ import 'package:lumit_flutter/src/rust/api/composition.dart';
 import 'package:lumit_flutter/src/rust/api/effect.dart';
 import 'package:lumit_flutter/src/rust/api/footage.dart';
 import 'package:lumit_flutter/src/rust/api/keymap.dart';
+import 'package:lumit_flutter/state/keymap.dart';
 import 'package:lumit_flutter/src/rust/api/layer.dart';
 import 'package:provider/provider.dart';
 
@@ -862,17 +863,19 @@ class _AudioTimelinePanelFrbState extends State<AudioTimelinePanelFrb>
   }
 
   void _wheel(PointerScrollEvent event, double contentX, TimelineAxis axis) {
-    final keys = HardwareKeyboard.instance;
-    if (keys.isControlPressed) {
+    final keymap = Provider.of<LumitUiState>(context, listen: false).keymap;
+    if (keymap.wheelHeld(BridgeWheelAction.zoomTime)) {
       _zoomAnchorViewportX = contentX - (_hLane.hasClients ? _hLane.offset : 0);
       _zoomAnchorFrame = axis.frameAtExact(contentX);
       _zoomMotion.nudge(
-        event.scrollDelta.dy < 0 ? 1.2 : 1 / 1.2,
+        wheelDelta(event) < 0 ? 1.2 : 1 / 1.2,
         duration: animationDuration(_animationLevel),
       );
       return;
     }
-    if (keys.isShiftPressed) _scrollBy(_hLane, event.scrollDelta.dy);
+    if (keymap.wheelHeld(BridgeWheelAction.scrollSideways)) {
+      _scrollBy(_hLane, wheelDelta(event));
+    }
   }
 
   // ------------------------------------------------------------ the fold keys
@@ -1989,8 +1992,12 @@ class _AudioTimelinePanelFrbState extends State<AudioTimelinePanelFrb>
                         },
                         onPointerSignal: (event) {
                           if (event is! PointerScrollEvent) return;
-                          final keys = HardwareKeyboard.instance;
-                          if (!keys.isControlPressed && !keys.isShiftPressed) {
+                          final keymap =
+                              Provider.of<LumitUiState>(context, listen: false)
+                                  .keymap;
+                          if (!keymap.wheelHeld(BridgeWheelAction.zoomTime) &&
+                              !keymap.wheelHeld(
+                                  BridgeWheelAction.scrollSideways)) {
                             return;
                           }
                           GestureBinding.instance.pointerSignalResolver

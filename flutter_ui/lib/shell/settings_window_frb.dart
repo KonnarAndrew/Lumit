@@ -2357,7 +2357,41 @@ class _SettingsWindowState extends State<_SettingsWindow> {
               ),
             ),
         ]),
+      ..._wheelSection(t, km),
     ];
+  }
+
+  /// Which modifier changes what the scroll wheel does, kept apart from the
+  /// key table at the bottom of the page.
+  List<Widget> _wheelSection(LumitTheme t, KeymapState km) {
+    final rows = [
+      for (final row in km.wheel)
+        _row(
+          t,
+          switch (row.action) {
+            BridgeWheelAction.zoomTime => l10n.keymapWheelZoomTime,
+            BridgeWheelAction.scrollSideways => l10n.keymapWheelScrollSideways,
+            BridgeWheelAction.zoomValues => l10n.keymapWheelZoomValues,
+            BridgeWheelAction.dropperSample => l10n.keymapWheelDropperSample,
+          },
+          _dropdown<BridgeWheelModifier>(
+            key: 'keymap-wheel-${row.action.name}',
+            value: row.modifier,
+            options: BridgeWheelModifier.values,
+            label: (m) => switch (m) {
+              BridgeWheelModifier.ctrl => l10n.keymapWheelCtrl,
+              BridgeWheelModifier.alt => l10n.keymapWheelAlt,
+              BridgeWheelModifier.shift => l10n.keymapWheelShift,
+            },
+            onChanged: (m) async {
+              await km.setWheel(row.action, m);
+              if (mounted) setState(() {});
+            },
+          ),
+        ),
+    ].whereType<Widget>().toList();
+    if (rows.isEmpty) return const [];
+    return [settingsSection(t, l10n.keymapWheel, rows)];
   }
 
   /// What the last import or export said, shown under the buttons.

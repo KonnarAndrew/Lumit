@@ -24,11 +24,13 @@ import 'package:lumit_flutter/main.dart';
 import 'package:lumit_flutter/src/rust/api/composition.dart';
 import 'package:lumit_flutter/state/comp_model.dart';
 import 'package:lumit_flutter/src/rust/api/effect.dart';
+import 'package:lumit_flutter/src/rust/api/keymap.dart';
 import 'package:lumit_flutter/state/preview_throttle.dart';
 import 'package:provider/provider.dart';
 
 import '../l10n/strings.dart';
 import '../state/os_keys.dart';
+import '../state/keymap.dart';
 import '../theme/theme.dart';
 import '../widgets/controls.dart';
 import '../widgets/drag_escape.dart';
@@ -637,8 +639,9 @@ class GraphEditorFrbState extends State<GraphEditorFrb> {
   // --- wheel ---------------------------------------------------------------
 
   void _wheel(PointerScrollEvent event) {
-    final keys = HardwareKeyboard.instance;
-    if (keys.isControlPressed || keys.isShiftPressed) {
+    final keymap = Provider.of<LumitUiState>(context, listen: false).keymap;
+    if (keymap.wheelHeld(BridgeWheelAction.zoomTime) ||
+        keymap.wheelHeld(BridgeWheelAction.scrollSideways)) {
       widget.onWheelTime(event, event.localPosition.dx);
       return;
     }
@@ -647,7 +650,7 @@ class GraphEditorFrbState extends State<GraphEditorFrb> {
     final range = _manual[widget.lens] ??= _lastRange;
     final (lo, hi) = range;
     final span = hi - lo;
-    if (altActuallyHeld()) {
+    if (keymap.wheelHeld(BridgeWheelAction.zoomValues)) {
       // Zoom about the pointer: the value under the cursor stays put. The
       // anchor is clamped to the pane, because the pointer signal is reported
       // against a listener that is taller than the graph — an anchor from
@@ -658,7 +661,7 @@ class GraphEditorFrbState extends State<GraphEditorFrb> {
         range,
         _paneSize.height,
       );
-      final factor = event.scrollDelta.dy < 0 ? 1 / 1.2 : 1.2;
+      final factor = wheelDelta(event) < 0 ? 1 / 1.2 : 1.2;
       setState(() => _manual[widget.lens] =
           _sane((at - (at - lo) * factor, at + (hi - at) * factor)));
       return;

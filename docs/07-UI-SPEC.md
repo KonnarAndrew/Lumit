@@ -1890,6 +1890,8 @@ arithmetic is the one shared pure module (`panels/timeline_snap.dart`).
 
 - Plain wheel scrolls vertically. `Shift+wheel` scrolls horizontally. `Ctrl+wheel` zooms
   time about the pointer. The wheel MUST never zoom without a modifier (no scroll hijack).
+  Those two modifiers are defaults: the Scroll wheel section of Settings → Shortcuts (§15)
+  sets each to Ctrl, Alt or Shift.
 - **A middle-button drag MUST pan the lanes, both ways at once**, which is what After
   Effects, Blender and Resolve all do with it. The view moves against the drag, so the
   lanes follow the pointer, and the outline comes with them because the two halves share
@@ -3351,6 +3353,14 @@ The model is `lumit-keymap` and the seam is `crates/lumit-bridge/src/api/keymap.
 engine decides what a chord means and the frontend only spells the keypress and draws the
 answer. The keymap is stored in the workspace file as the engine's own JSON, so it
 survives a restart in the same format it exports in.
+
+**Scroll wheel.** Under the key table, apart from it, a Scroll wheel section picks the
+modifier for each modified wheel action: zoom the Timeline (Ctrl), scroll it sideways
+(Shift), zoom graph values (Alt) and the dropper's sample size (Shift). Each is Ctrl, Alt
+or Shift, never none, so the wheel still never zooms unmodified. The first three all act in
+the Graph editor, so taking a modifier one of them holds swaps the two. The dropper is
+alone in the Viewer and may share. The choices live in the keymap file, so presets, import
+and export carry them.
 
 One honest gap. The **Tools** context arms the toolbar's
 tools (§1.7) and cycles a group on a repeat press, but what most tools then *do* is not built

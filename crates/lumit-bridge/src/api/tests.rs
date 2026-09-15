@@ -8710,6 +8710,39 @@ fn rebinding_a_row_answers_with_the_table_it_produced() {
     );
 }
 
+/// A wheel modifier set in Settings is in the file that gets stored, and a
+/// preset puts the shipped ones back.
+#[test]
+fn a_wheel_modifier_is_stored_with_the_keymap_and_reset_by_a_preset() {
+    use crate::api::keymap::*;
+    let _guard = keymap_test();
+
+    let after = keymap_set_wheel(BridgeWheelAction::ZoomTime, BridgeWheelModifier::Alt);
+    let modifier = |rows: &[BridgeWheelBinding], action| {
+        rows.iter().find(|r| r.action == action).map(|r| r.modifier)
+    };
+    assert_eq!(
+        modifier(&after, BridgeWheelAction::ZoomTime),
+        Some(BridgeWheelModifier::Alt)
+    );
+    assert_eq!(
+        modifier(&after, BridgeWheelAction::ZoomValues),
+        Some(BridgeWheelModifier::Ctrl)
+    );
+
+    let json = keymap_to_json();
+    keymap_load_preset(BridgeKeymapPreset::Lumit);
+    assert_eq!(
+        modifier(&keymap_wheel(), BridgeWheelAction::ZoomTime),
+        Some(BridgeWheelModifier::Ctrl)
+    );
+    keymap_from_json(json).expect("the stored file reads back");
+    assert_eq!(
+        modifier(&keymap_wheel(), BridgeWheelAction::ZoomTime),
+        Some(BridgeWheelModifier::Alt)
+    );
+}
+
 /// Text that is not a chord is refused with words a dialogue can show, and the
 /// live keymap is left exactly as it was — a typo must not cost a binding.
 #[test]

@@ -926,6 +926,15 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
   BridgeVramCacheStats dco_decode_bridge_vram_cache_stats(dynamic raw);
 
   @protected
+  BridgeWheelAction dco_decode_bridge_wheel_action(dynamic raw);
+
+  @protected
+  BridgeWheelBinding dco_decode_bridge_wheel_binding(dynamic raw);
+
+  @protected
+  BridgeWheelModifier dco_decode_bridge_wheel_modifier(dynamic raw);
+
+  @protected
   BridgeWireCamera dco_decode_bridge_wire_camera(dynamic raw);
 
   @protected
@@ -1188,6 +1197,9 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
 
   @protected
   List<BridgeVertex> dco_decode_list_bridge_vertex(dynamic raw);
+
+  @protected
+  List<BridgeWheelBinding> dco_decode_list_bridge_wheel_binding(dynamic raw);
 
   @protected
   List<BridgeWireCamera> dco_decode_list_bridge_wire_camera(dynamic raw);
@@ -2415,6 +2427,18 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  BridgeWheelAction sse_decode_bridge_wheel_action(
+      SseDeserializer deserializer);
+
+  @protected
+  BridgeWheelBinding sse_decode_bridge_wheel_binding(
+      SseDeserializer deserializer);
+
+  @protected
+  BridgeWheelModifier sse_decode_bridge_wheel_modifier(
+      SseDeserializer deserializer);
+
+  @protected
   BridgeWireCamera sse_decode_bridge_wire_camera(SseDeserializer deserializer);
 
   @protected
@@ -2732,6 +2756,10 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
 
   @protected
   List<BridgeVertex> sse_decode_list_bridge_vertex(
+      SseDeserializer deserializer);
+
+  @protected
+  List<BridgeWheelBinding> sse_decode_list_bridge_wheel_binding(
       SseDeserializer deserializer);
 
   @protected
@@ -4084,6 +4112,18 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
       BridgeVramCacheStats self, SseSerializer serializer);
 
   @protected
+  void sse_encode_bridge_wheel_action(
+      BridgeWheelAction self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_bridge_wheel_binding(
+      BridgeWheelBinding self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_bridge_wheel_modifier(
+      BridgeWheelModifier self, SseSerializer serializer);
+
+  @protected
   void sse_encode_bridge_wire_camera(
       BridgeWireCamera self, SseSerializer serializer);
 
@@ -4414,6 +4454,10 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
   @protected
   void sse_encode_list_bridge_vertex(
       List<BridgeVertex> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_bridge_wheel_binding(
+      List<BridgeWheelBinding> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_bridge_wire_camera(
