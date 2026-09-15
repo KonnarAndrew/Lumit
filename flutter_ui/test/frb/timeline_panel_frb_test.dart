@@ -7949,6 +7949,50 @@ void main() {
           reason: 'the locked sibling silently refused its share');
     });
 
+    /// A switch cell on the locked row itself refuses quietly, while its lock
+    /// and shy cells still work.
+    testWidgets('a locked row refuses its switch cells without throwing',
+        (tester) async {
+      final p = withComp();
+      final layer = p.comp.addSolidLayer();
+      layer.setSwitch(switch_: BridgeLayerSwitch.locked, on_: true);
+      p.uiState.model.refresh();
+      await mount(tester, p);
+      final id = layer.internallayerId;
+
+      await tester.tap(find.byKey(ValueKey<String>('tl-visible-$id')));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(layer.getSwitches().visible, isTrue,
+          reason: 'the locked row kept its eye');
+
+      await tester.tap(find.byKey(ValueKey<String>('tl-shy-$id')));
+      await tester.pumpAndSettle();
+      expect(layer.getSwitches().shy, isTrue);
+      await tester.tap(find.byKey(ValueKey<String>('tl-locked-$id')));
+      await tester.pumpAndSettle();
+      expect(layer.getSwitches().locked, isFalse);
+    });
+
+    /// The Flow cell on a locked footage row refuses quietly too.
+    testWidgets('a locked footage row refuses its Flow cell without throwing',
+        (tester) async {
+      final p = withComp();
+      final footage = p.state.project!.importFootage(path: 'C:/clips/shot.mov');
+      p.comp.addFootageLayer(footage: footage, asSequence: false);
+      final layer = p.comp.getLayers().single;
+      layer.setSwitch(switch_: BridgeLayerSwitch.locked, on_: true);
+      p.uiState.model.refresh();
+      await mount(tester, p);
+
+      final id = layer.internallayerId;
+      await tester.tap(find.byKey(ValueKey<String>('tl-flow-$id')));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(layer.getInfo().flow, isFalse,
+          reason: 'the locked row kept Flow off');
+    });
+
     testWidgets('the row menu\'s Delete takes the whole selection',
         (tester) async {
       final p = withComp();
