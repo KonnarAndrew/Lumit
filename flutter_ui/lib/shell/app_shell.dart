@@ -813,6 +813,18 @@ class _LumitAppViewState extends State<LumitAppView> {
         if (ui.deleteClaim?.call() ?? false) {
           break;
         }
+        // Delete never reaches past the focused panel. Layers only go from a
+        // panel that shows layers, so effects picked in Effect controls cannot
+        // take the layer with them when their claim misses.
+        if (!const {
+          Panel.timeline,
+          Panel.audioTimeline,
+          Panel.viewer,
+          Panel.hierarchy,
+        }.contains(ui.activePanel)) {
+          handled = false;
+          break;
+        }
         // The whole selection, not just the primary: with several
         // layers boxed in the Viewer, Delete taking one of them would be a
         // surprise every time.
