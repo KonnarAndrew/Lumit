@@ -165,12 +165,10 @@ hand-written `BUILTINS` literal are all deleted, and with them the migration-onl
 
 - **Dynamic parameters** - derived from a custom shader's uniforms or a node graph's exposed
     inputs; then **spare parameters**, the user's own sliders for expressions to read. The
-    rules are settled (§4 of the note). The Node graph effect's derived rows are the first of
-    these, built with NG1; the panel affordances for adopting a row and removing one are
-    what remains.
-- **Bridge and panel**: `list_parameters` and the Effect Controls read the schema, so they
-    follow for free - except for dynamic parameters, which are per *instance* rather than per
-    effect and need a bridge call that takes an instance id.
+    rules are settled (§4 of the note) and the bridge carries them (custom-shader.md CS2:
+    `parameter_sync`, `sync_parameters`, `remove_unused_parameters`). What remains is the
+    panel row that presses them, the Sync and Remove affordances of CS3, and then spare
+    parameters.
 
 - **Rescale a derived spatial value, or stop deriving one.** Not a migration step - an open
     defect the migration uncovered. Scanlines' `derived.roll_px` is
