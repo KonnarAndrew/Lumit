@@ -511,6 +511,10 @@ class _ProjectRowFrbState extends State<ProjectRowFrb> {
                       behavior: HitTestBehavior.opaque,
                       onTap: () =>
                           _doRelink((item as ItemReference_Footage).field0),
+                      // Claims a double-click here too, so the row never opens
+                      // New composition over the badge.
+                      onDoubleTap: () =>
+                          _doRelink((item as ItemReference_Footage).field0),
                       child: ProjectBadge(
                         label: l10n.projectItemMissing,
                         colour: t.warning,

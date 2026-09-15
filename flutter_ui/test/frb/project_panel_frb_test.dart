@@ -1031,6 +1031,63 @@ void main() {
           reason: 'the picked path reached the engine, not just the panel');
     });
 
+    testWidgets('a double-click on the relink badge only relinks',
+        (tester) async {
+      final p = freshProject();
+      final gone = p.state.project!.importFootage(path: 'C:/nowhere/gone.mp4');
+      var asked = 0;
+
+      await tester.pumpWidget(hostPanel(
+        child: ProjectPanelFrb(relinkPicker: () async {
+          asked++;
+          return null;
+        }),
+        state: p.state,
+        uiState: p.uiState,
+      ));
+      final relink = find.byKey(ValueKey<String>('relink-${gone.internalid}'));
+      await settleFrb(tester, until: () => relink.evaluate().isNotEmpty);
+
+      // The mouse hovers first, as on the desk, so the row's hover fill keeps
+      // its layout steady while the first click selects it.
+      final centre = tester.getCenter(relink);
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: centre - const Offset(0, 40));
+      await mouse.moveTo(centre);
+      await tester.pump();
+      await doubleClick(tester, relink);
+      await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 50));
+      await settleFrb(tester);
+      await mouse.removePointer();
+
+      expect(asked, 1, reason: 'the badge opens the relink picker once');
+      expect(find.text('NEW COMPOSITION'), findsNothing,
+          reason: 'the row does not open over its badge');
+    });
+
+    // A file on disk that will not decode says so, and is not called missing.
+    testWidgets('an undecodable file wears the unreadable badge',
+        (tester) async {
+      final p = freshProject();
+      final dir = Directory.systemTemp.createTempSync('lumit-undecodable');
+      final file = File('${dir.path}/broken.png')
+        ..writeAsStringSync('not a picture');
+      final broken = p.state.project!.importFootage(path: file.path);
+
+      await tester.pumpWidget(hostPanel(
+        child: const ProjectPanelFrb(),
+        state: p.state,
+        uiState: p.uiState,
+      ));
+      final badge =
+          find.byKey(ValueKey<String>('undecodable-${broken.internalid}'));
+      await settleFrb(tester, until: () => badge.evaluate().isNotEmpty);
+
+      expect(badge, findsOneWidget);
+      expect(find.text('unreadable'), findsOneWidget);
+      expect(find.text('missing'), findsNothing);
+    });
+
     /// The menu offers a different set per item kind, and offering the wrong one
     /// is how a user ends up with a Relink that cannot mean anything.
     ///
