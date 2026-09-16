@@ -6803,7 +6803,8 @@ surfaces:
     /// and with it refused — a Null on top whose matte names the bottom layer
     /// is a reference to a layer below, which switches the cull off without
     /// adding a pixel — and the two must be byte-identical, for a solid
-    /// underneath and (where ffmpeg can write the fixture) for footage. The
+    /// underneath, for a turned cover scaled up until it clears the frame, and
+    /// (where ffmpeg can write the fixture) for footage. The
     /// draw list proves the cull engaged; the export path stays identical to
     /// the interactive one.
     #[test]
@@ -6830,7 +6831,10 @@ surfaces:
             });
             comp.layers.insert(0, null);
         };
-        let cover = |doc: &mut Document, comp_id: Uuid| {
+        // `turn` is the cover's rotation in degrees; a turned cover is scaled
+        // up until its corners clear the frame, which is the case the
+        // predicate now allows.
+        let cover = |doc: &mut Document, comp_id: Uuid, turn: f64| {
             let solid = Uuid::now_v7();
             doc.items.push(ProjectItem::Solid(SolidDef {
                 id: solid,
@@ -6840,13 +6844,20 @@ surfaces:
                 height: ch,
                 extra: serde_json::Map::new(),
             }));
-            let layer = matrix_layer("Cover", LayerKind::Solid { def: solid }, cw, ch);
+            let mut layer = matrix_layer("Cover", LayerKind::Solid { def: solid }, cw, ch);
+            if turn != 0.0 {
+                layer.transform.rotation = Property::fixed(turn);
+                layer.transform.scale_x = Property::fixed(400.0);
+                layer.transform.scale_y = Property::fixed(400.0);
+            }
             doc.comp_mut(comp_id).expect("comp").layers.insert(0, layer);
         };
 
-        let mut scenes: Vec<(&str, Document, Uuid)> = Vec::new();
+        let mut scenes: Vec<(&str, Document, Uuid, f64)> = Vec::new();
         let (solid_doc, solid_comp, _) = matrix_base(cw, ch, LinearColour([0.8, 0.1, 0.1, 1.0]));
-        scenes.push(("a solid underneath", solid_doc, solid_comp));
+        scenes.push(("a solid underneath", solid_doc, solid_comp, 0.0));
+        let (turned_doc, turned_comp, _) = matrix_base(cw, ch, LinearColour([0.8, 0.1, 0.1, 1.0]));
+        scenes.push(("a turned cover", turned_doc, turned_comp, 30.0));
         let fixture = footage_fixture();
         match &fixture {
             Some((_dir, clip)) => {
@@ -6868,13 +6879,13 @@ surfaces:
                 let comp_id = push_comp(&mut doc, "Scene", cw, ch);
                 let clip_layer = matrix_layer("Clip", LayerKind::Footage { item }, 320, 240);
                 doc.comp_mut(comp_id).expect("comp").layers.push(clip_layer);
-                scenes.push(("footage underneath", doc, comp_id));
+                scenes.push(("footage underneath", doc, comp_id, 0.0));
             }
             None => eprintln!("no ffmpeg CLI: the footage row is skipped"),
         }
 
-        for (name, mut doc, comp_id) in scenes {
-            cover(&mut doc, comp_id);
+        for (name, mut doc, comp_id, turn) in scenes {
+            cover(&mut doc, comp_id, turn);
             let mut refused = doc.clone();
             refuse_cull(&mut refused, comp_id);
             let (culled, refused) = (Arc::new(doc), Arc::new(refused));
