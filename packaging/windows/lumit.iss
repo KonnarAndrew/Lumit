@@ -48,8 +48,11 @@ SolidCompression=yes
 ; and `lumit-aplug-broker.exe` ship without rules of their own: the Windows CMake
 ; install step puts them beside the runner (docs/12 §2.3), and everything
 ; beside the runner is copied here.
+;
+; The two exports that ask a laptop for its discrete card make the linker write
+; lumit.lib and lumit.exp beside the exe. Neither is any use to a user.
 Source: "..\..\flutter_ui\build\windows\x64\runner\Release\*"; DestDir: "{app}"; \
-  Flags: recursesubdirs ignoreversion
+  Excludes: "lumit.lib,lumit.exp"; Flags: recursesubdirs ignoreversion
 Source: "..\..\assets\brand\lumit-project.ico"; DestDir: "{app}\icons"
 Source: "..\..\assets\brand\lumit-preset.ico"; DestDir: "{app}\icons"
 Source: "..\..\assets\brand\lumit-theme.ico"; DestDir: "{app}\icons"
