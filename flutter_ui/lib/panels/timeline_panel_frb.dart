@@ -1280,14 +1280,16 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
     if (_selectedProperties.length == 1 && _selectedProperties.first == path) {
       return;
     }
-    setState(() {
-      _selectedProperties
-        ..clear()
-        ..add(path);
-      _graphKeySelection.clear();
-      _highlighted = layerIdOfPath(path) ?? _highlighted;
-    });
+    _selectedProperties
+      ..clear()
+      ..add(path);
+    _graphKeySelection.clear();
+    _highlighted = layerIdOfPath(path) ?? _highlighted;
     _publishPropertySelection();
+    // Published, not `setState`, for the same reason [_selectOnEdit] is: a row
+    // arriving lit is two rows' shading, not a new panel.
+    _publishRowSelection();
+    if (_graph) setState(() {});
   }
 
   void _publishEffectSelection() {
