@@ -10,30 +10,14 @@ lives. Delete a point when it lands, its regression test is the record.
 
 - Linux Viewer resize can hand Dart a closed fd (`shared_linux.rs` `Drop`,
   `headless.rs` pool). Hold evicted targets one generation or `dup()` at export.
-- The panic hook only installs when the render worker starts, so a panic before a project
-  opens isn't logged (`faults::watch`).
-- The Settings scrollbar thumb jumps while scrolling. Check other dialogues too.
-- Composition ▸ Detect beats shows no busy card, and no card says how long is left.
-- "Lost connection to device" after idling, two Particulate effects freezing the preview,
-  and the freeze on changing the Viewer's fit have no cause yet. Needs
-  `lumit-diagnostics.log` from Temp.
-- AE import drops Material Options' Casts Shadows without a report row.
-- AE import reads a keyframed dropdown in the colour half as its still value with no
-  report row (`map/fx_colour.rs`). `fx_distort` already reports it.
 
 ## 2. Performance
 
-- Dragging the Timeline panel's height is laggy (reported 2026-08-31). Retest.
-- Effect controls rebuilds every card when an effect is deleted, and no budget test covers
-  a delete.
-- Selecting an effect rebuilds about 370 widgets. `FxSection.selected` is a plain bool and
-  `_onSelectPropertyRequested` calls setState.
-- The Project panel isn't virtualised (`ListView(children: rows)`). Reuse `LazyBlocks`,
-  keep `_visibleIds` whole for Ctrl+A.
-- A click rebuilds the whole Project panel (`_select` is setState).
 - `LumitAppNew` rebuilds the whole app on any `LumitUiState.notifyListeners`.
-- Only a plain 2D Solid at full opacity hides the layers under it (`occlusion.rs`). Opaque
-  footage, images, precomps and transformed layers should too.
+- Opaque footage and images can't hide the layers under them, because nothing knows
+  whether a decoded source has an alpha channel. `lumit_media::VideoInfo` and
+  `SourceProbe` would both need an alpha fact, and `occluder_index` the source facts. A
+  precomp needs its own contents judged (`occlusion.rs`).
 - An in-flight render can't be cancelled, and neither can the idle cache fill. In-render
   epoch tokens, docs/impl/playback-scheduler.md.
 - Replace `poll(Maintain::Wait)` in every present with a keyed mutex (`shared.rs`,
@@ -45,15 +29,11 @@ lives. Delete a point when it lands, its regression test is the record.
   `windows/runner/main.cpp` once Impeller holds 60 fps. Standing.
 - Flow synthesis spends about 70 of 79 ms on luma conversion and uploads. Keep decoded
   frames on the card.
-- `PreviewEngine::default` builds a GPU-less decode pool nothing reads. Delete it.
 - The flare's Matte mode dispatches all 16 light slots. Measure the live fraction, then
   dispatch indirectly.
 - The Scopes trace is a fixed 256x256 CPU image. Use the shared texture, sized to the panel.
 - The matte render-alone pass stays at full comp resolution.
 - The audio mix is rebuilt from scratch when its signature changes (`prepare_once`).
-- A panel seam drag asks for about 20 frames from the cache. Profile if it feels slow.
-- The Shi-Tomasi response map sums a full window per pixel. Make the box sums separable
-  (`lumit-track/src/detect.rs`).
 - frb's SSE codec encodes `Vec<u8>` a byte at a time (thumbnails, scope traces).
 - Bridge reads outside the read model: Source card text, source item, mask and
   interpolation reads, the Viewer's missing-file probe, the comp's marker and work area.
@@ -68,7 +48,7 @@ lives. Delete a point when it lands, its regression test is the record.
 - P5: a graph's Fx boxes as Timeline rows, placed graph Inputs in Effect controls and the
   Timeline, dimmed collapse and audio cells, the Retime clock face. `use/node-graphs.mdx`
   already describes these.
-- More drivers: Time, Constant value, Colour ramp, Vector split and combine.
+- More drivers: Colour ramp.
 - The effects console rows show a placeholder gradient instead of preview thumbnails.
 - A point row can't show it's driven (`EffectPointRowFrb`).
 - Spare parameters, and the Sync and Remove row for derived parameters
@@ -93,7 +73,6 @@ lives. Delete a point when it lands, its regression test is the record.
 - The degradation reading should name what it skipped (docs/07 §2.2 item 9).
 - Graph editor zoom and auto-fit should use `SmoothZoom`.
 - Smooth edge-follow with a setting, and `Shift+=` zoom to the work area (docs/07 §4.6).
-- Beat tap needs a key, `8` went to markers (docs/07 §10).
 - Shape layers: nested groups, wiggle, gradient stop lists, joins and caps other than round.
 - Type: vertical type, real glyph metrics across the bridge, multiple lines, a character
   panel.
@@ -109,16 +88,14 @@ lives. Delete a point when it lands, its regression test is the record.
 - Double-click still waits in 11 places. Move them to `DoubleTap` (Hierarchy rows etc).
 - A frame rate control for an image sequence (`SetSequenceRate`, Project panel menu).
 - Nothing says when a proxy file itself is broken (`BridgeProxy`).
-- The drag multiplier popup on value boxes needs its own look.
-- The Welcome screen retouch from 2026-08-30.
 - The opening card sits at 0% while the file is read. Count bytes over the unzip.
 - Tone mapping has no explanation anywhere on screen.
 - Settings: CUDA on/off, the plugins and decoder page, a Show shortcut hints switch.
 - Settings sliders should wear their own face (2px track, primary knob, no fill).
 - The Chrome labels setting is only read by the Timeline toggles. Icons everywhere has no
   reader (docs/15 §5.1).
-- Themes: a swatch strip per row in the picker menu, and somewhere to keep themes besides
-  the workspace file.
+- Themes: swatches on each row of the picker menu, since the strip beside it shows only
+  the selection. And somewhere to keep themes besides the workspace file.
 - The boot splash needs an engine boot event stream.
 - First-run setup's four-card version (docs/07 §13.1).
 - Command palette recents should persist and teach every bound shortcut.
@@ -138,20 +115,19 @@ lives. Delete a point when it lands, its regression test is the record.
   measured costs.
 
 **Audio**
-- Audio should never wait for pictures. docs/09 and Every frame playback disagree.
 - Scrub audition and its Timeline toggle, the replace-or-merge offer when beats are
   detected again, and peak files on disk (docs/09).
 - A device change isn't picked up live (`audio::devices`, `set_device`).
 - The Sound mix waveform strides past 256 frames a bucket, a transient can drop out.
-- Automatic beat snapping, `markers::snap_time` has no caller (docs/04 §12).
+- Retime boundary drags should snap to beats, and
+  `retime.quantise_boundaries_to_beats` has no caller (docs/04 §12.3). Timeline drags
+  already snap to beat markers.
 
 **Retime** (docs/04-RETIMING.md)
-- Eased ramp presets (Slow, Fast, Smooth, Sharp) come back with a preset shelf rethink.
-- Retime UI: Hold preset, RATE/MAP chips, kink badge, overrun band and source-out line,
-  compensating Alt-drag, copy and paste a retime, outward trim extends the map, retime
-  shortcuts, source-rate advisory badge.
-- The Time-lens vertical boundary drag has no bridge op (`Retime::from_source_keyframes`).
-- The Retime graph and `trim_to_source_end` have no bridge API.
+- Retime UI: Hold preset, kink badge, overrun band and source-out line, compensating
+  Alt-drag, outward trim extends the map, retime shortcuts, source-rate advisory badge.
+- `Clip::trim_to_source_end` has no bridge call, and the clip menu has no Trim to source
+  end (docs/07 §4.4).
 - Flow under an adjustment layer can't see footage move, a re-render decodes nothing
   (docs/impl/temporal-rerender.md).
 
@@ -165,10 +141,8 @@ lives. Delete a point when it lands, its regression test is the record.
 
 **Effects**
 - Lens flare: image aperture, lens designer, Occlusion layer, grid refinement at vignette
-  folds, one-op paired keyframe writes. docs/impl/lens-flare.md §4 still describes the old
-  quad raster.
-- LUT log input spaces.
-- Particulate depth occlusion and collision (docs/research/particles.md §5).
+  folds. A point row's keyframe toggle still costs two undo steps.
+- Particulate depth occlusion (docs/research/particles.md §5).
 - A tone mapping effect for export (docs/08 §3).
 - The shader editor uses VS Code's palette, hardcoded bracket colours, and `buildTextSpan`
   drops the style.
@@ -194,6 +168,8 @@ lives. Delete a point when it lands, its regression test is the record.
 
 ## 4. Engineering, CI and platform
 
+- The rebuild budget tests' shared mount asks for an effect called `sharpen`, which the
+  engine doesn't register, so it silently mounts four effects where the comment says five.
 - Big files: 103 over 1000 lines, 14 over 4000. Split where there's no reason not to.
 - docs/14 tooling: fuzz targets for the `.lum` reader and journal replay, edition 2024,
   `indexing_slicing` and `arithmetic_side_effects` denies, `clippy::pedantic`, a
@@ -201,7 +177,6 @@ lives. Delete a point when it lands, its regression test is the record.
 - Thin-view debts: `comp.activeCameraPose`, `layer.textMetrics`, the mask path pair on the
   selection, engine-side draft ops for the shape tool's Ctrl+Z, `LumitTheme.copyWith` for
   tokens, one present-pool body in `headless.rs`, typed `ExpressionContext::comp_time`.
-- `playheadFrame` on `KeyframeControlsFrb` and `PathKeyframesFrb` is never read.
 - Bridge: a panic throws instead of reporting, clippy can't see `#[frb]` functions, and
   `ProjectReference::state()` hands out the raw lock.
 - `deny.toml` ignores: move `ttf-parser` to `skrifa`. bincode, paste and smartstring
@@ -218,12 +193,10 @@ lives. Delete a point when it lands, its regression test is the record.
   nothing proves a frame arrives, and texture registration is only tested by hand.
 - Shared textures: no keyed mutex, no fence on Linux and macOS, and the D3D12 to D3D11 hop
   isn't in docs/06.
-- macOS: the FFmpeg 8 action is a stopgap until Homebrew ships `ffmpeg@8`, the .app isn't
-  relocatable, it's single architecture, and the IOSurface and Metal paths are unproven.
+- macOS: the FFmpeg 8 action is a stopgap until Homebrew ships `ffmpeg@8`, the build is
+  single architecture, and the IOSurface and Metal paths are unproven.
 - macOS pass: VideoToolbox, ProRes, `application:openFile:`.
 - The iOS podspec is misnamed (`rust_lib_lumit_flutter`).
-- The Linux DMA-BUF path has never run on a machine with a GPU.
-- The Windows installer is unsigned.
 - A Flatpak remote so `flatpak update` works.
 - One-copy D3D11 to DX12 decode interop, and ProRes/DNxHR export (docs/05 §6).
 - File format: embedded `thumbs/`, sidecar `proxies/` and `peaks/` (docs/10).
@@ -236,8 +209,6 @@ lives. Delete a point when it lands, its regression test is the record.
 
 - Orientation and rotation on one layer are only reported. Spatial tangents on Position
   flatten.
-- Roving keys need an AE sitting, `setRovingAtKey` didn't take.
-- Golden-frame tests against After Effects renders of `fixture.aep`.
 - Ten match-name rows are unaudited (`pending_audit`), and Turbulent displace's Pinning
   needs the option strings.
 - The collected `footage/` copy and its hash check (docs/11 §2.5).
@@ -245,10 +216,6 @@ lives. Delete a point when it lands, its regression test is the record.
 - Parser: corpus testing across AE versions, `btds` text and `GCst` gradients, the other
   arbitrary-data blobs, shape and text depth.
 - Parser: the project-level `LIST EfdG` fallback, a mask path's linear speed.
-- Fixtures owed: real footage (rate, alpha, loop), an effect on a layer not the comp's
-  size, a dragged and stretched layer, a second reflected layer, the funnel-table rows
-  marked `reference`.
-- Property display names aren't in the file, a name table would be a separate decision.
 
 ## 6. Later
 
@@ -257,7 +224,8 @@ lives. Delete a point when it lands, its regression test is the record.
 - The Hierarchy panel's graph view and an indent/graph switch.
 - LFX plugins, Lottie import and export, the stabiliser, Blender scene import,
   OpenTimelineIO, a render CLI (docs/16).
-- Importing a preset from outside the presets folder, per-layer motion blur polish.
+- Copying a preset into the library folder so the listing finds it (applying one from
+  anywhere already works). Per-layer motion blur polish.
 - Parked: Choke, Inner glow and Inner shadow as effects. Slitscan, Dither,
   Draw Glass, aperture shapes. A details inspector in the Source card.
 - Flow research: WAFT-class learned flow, a blended census and SSD cost, line art on the
@@ -277,3 +245,29 @@ lives. Delete a point when it lands, its regression test is the record.
 - What a point pair with only one half driven looks like.
 - A Precomp layer's audio rack does nothing. Fixing it needs a bus stage, which docs/09 §1
   and §7 rule out for v1. Build it and change the spec, or leave it?
+- Can you send `lumit-diagnostics.log` from Temp after an idle device loss, two Particulate
+  effects freezing the preview, and a freeze on changing the Viewer fit? Does the
+  Particulate freeze still happen after the retime curve fix?
+- Is dragging the Timeline panel's height still laggy on your machine now it ships on Skia?
+- Does a panel seam drag feel slow enough to be worth profiling?
+- Which key taps a beat during playback, now the bare digits are numbered markers?
+- The drag multiplier popup wears the hint pill’s face. What should its own look be, and
+  is there a drawing for it?
+- What is the Welcome screen retouch from 2026-08-30? Nothing in the tree records it.
+- In Every frame mode, when a picture runs late, should the sound play on out of sync, or
+  should Every frame play silent? docs/09 and the code disagree.
+- What should the ramp preset shelf be on the Retime property, and where does it sit,
+  before Slow, Fast, Smooth and Sharp come back?
+- Now an OCIO colour space transform can sit either side of a LUT, does the LUT still need
+  log input spaces of its own?
+- Can anyone run the Linux zero-copy Viewer on a box with a real GPU, or does that path
+  stay unproven for v1?
+- Are you buying a Windows code-signing certificate, and which kind, so the installer step
+  can be written around it?
+- Will you run make-fixture.jsx in After Effects again with roving forced on a key?
+- Can you render `fixture.aep` out of After Effects, and which comps, frames and format,
+  so the golden-frame comparison has a reference?
+- Next time you are in After Effects, can you add the four owed fixture rows: real footage,
+  an off-size effect, a dragged and stretched layer, a second reflected layer?
+- Should a table of After Effects' English property names ship, or does the importer keep
+  falling back to the match name?
