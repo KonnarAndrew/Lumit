@@ -657,6 +657,44 @@ void main() {
           reason: 'a plain click goes back to just that row');
     });
 
+    /// A picked row drags the selection **as it now stands**. The rows hear the
+    /// selection on a notifier and each one listens for its own share of it, so
+    /// a row that was already picked, and was already not the only one picked,
+    /// hears nothing when a third row joins. Its drag still has to carry that
+    /// third row.
+    testWidgets('a picked row drags the selection it grew into',
+        (tester) async {
+      final p = freshProject();
+      for (final name in ['a.mov', 'b.mov', 'c.mov', 'd.mov']) {
+        p.state.project!.importFootage(path: 'C:/clips/$name');
+      }
+      await tester.pumpWidget(hostPanel(
+        child: const ProjectPanelFrb(),
+        state: p.state,
+        uiState: p.uiState,
+      ));
+      await tester.pump();
+
+      List<FootageReference> dragged() => tester
+          .widget<Draggable<FootageDragData>>(
+            find.ancestor(
+              of: find.text('a.mov'),
+              matching: find.byType(Draggable<FootageDragData>),
+            ),
+          )
+          .data!
+          .footage;
+
+      await _clickRow(tester, 'a.mov');
+      await _clickRow(tester, 'b.mov', held: LogicalKeyboardKey.controlLeft);
+      await _clickRow(tester, 'c.mov', held: LogicalKeyboardKey.controlLeft);
+      expect(dragged(), hasLength(3),
+          reason: 'the third Ctrl-click joined the selection this row drags');
+
+      await _clickRow(tester, 'd.mov', held: LogicalKeyboardKey.controlLeft);
+      expect(dragged(), hasLength(4), reason: 'and so did the fourth');
+    });
+
     /// Dropping footage on New composition opens the same dialogue the button
     /// opens, and every dropped item lands in the finished comp as a layer
     /// (docs/07 §3.1).
