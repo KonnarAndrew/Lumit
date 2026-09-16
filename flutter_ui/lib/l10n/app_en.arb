@@ -8923,7 +8923,7 @@
   "@fxMaximumSignal": {
     "description": "Effect controls — a control on Broadcast safe: the largest signal amplitude allowed, in IRE."
   },
-  "fxRandomOffsetScale": "Random Offset Scale",
+  "fxRandomOffsetScale": "Random offset scale",
   "@fxRandomOffsetScale": {
     "description": "Effect controls — a control on Pixel sort: scale random span offsets by this amount."
   },

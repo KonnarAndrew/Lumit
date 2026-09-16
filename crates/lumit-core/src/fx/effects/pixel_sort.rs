@@ -105,7 +105,7 @@ pub struct PixelSort {
     pub max_span: f32,
 
     #[slider(
-        label = "Random Offset Scale",
+        label = "Random offset scale",
         min = 0.0,
         max = 1.0,
         default = 1.0,

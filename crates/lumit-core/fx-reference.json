@@ -17038,7 +17038,7 @@
         },
         {
           "id": "offset_scale",
-          "label": "Random Offset Scale",
+          "label": "Random offset scale",
           "kind": "float",
           "unit": "raw",
           "default": 1.0,
