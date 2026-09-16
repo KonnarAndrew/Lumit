@@ -84,6 +84,8 @@ lives. Delete a point when it lands, its regression test is the record.
   Reveal, Track motion.
 
 **Panels and dialogues**
+- A project carries its panel layout and updates it on save, and a user's own changes to
+  it still save per user. docs/07 §1.5 changes with it.
 - Levels needs RGB, R, G, B and Alpha buttons. Dragging on the Curves graph lags.
 - Double-click still waits in 11 places. Move them to `DoubleTap` (Hierarchy rows etc).
 - A frame rate control for an image sequence (`SetSequenceRate`, Project panel menu).
@@ -115,6 +117,10 @@ lives. Delete a point when it lands, its regression test is the record.
   measured costs.
 
 **Audio**
+- A Precomp layer's audio effect rack does nothing. Build the bus stage in `MixPlan` so
+  the nested comp is summed and run through the rack, and change docs/09 §1 and §7 with it.
+- docs/09 says audio must never pause for video, but Every frame holds the sound when a
+  picture runs late, which is what it should do. The spec is the side that changes.
 - Scrub audition and its Timeline toggle, the replace-or-merge offer when beats are
   detected again, and peak files on disk (docs/09).
 - A device change isn't picked up live (`audio::devices`, `set_device`).
@@ -239,35 +245,23 @@ lives. Delete a point when it lands, its regression test is the record.
 ## 7. Needs a decision
 
 - `UU` opens every modified row. Keep it, or go back to the old reveal of animated groups.
-- Rename Mix to Opacity? Transform shows both.
-- Should a project remember its panel layout? docs/07 §1.5 says it's per user.
 - A node's "at" toggle forgets itself when Lumit closes. Saving it would dirty the file.
 - What a point pair with only one half driven looks like.
-- A Precomp layer's audio rack does nothing. Fixing it needs a bus stage, which docs/09 §1
-  and §7 rule out for v1. Build it and change the spec, or leave it?
 - Can you send `lumit-diagnostics.log` from Temp after an idle device loss, two Particulate
   effects freezing the preview, and a freeze on changing the Viewer fit? Does the
   Particulate freeze still happen after the retime curve fix?
 - Is dragging the Timeline panel's height still laggy on your machine now it ships on Skia?
 - Does a panel seam drag feel slow enough to be worth profiling?
-- Which key taps a beat during playback, now the bare digits are numbered markers?
+- Beat tap has no key. The digits 1 to 9 add and go to numbered markers now, so `8` is
+  taken. Which key should tap a beat during playback?
 - The drag multiplier popup wears the hint pill’s face. What should its own look be, and
   is there a drawing for it?
-- What is the Welcome screen retouch from 2026-08-30? Nothing in the tree records it.
-- In Every frame mode, when a picture runs late, should the sound play on out of sync, or
-  should Every frame play silent? docs/09 and the code disagree.
+- What should change on the Welcome screen? A retouch was approved on 2026-08-30 and
+  nothing in the tree records what it was.
 - What should the ramp preset shelf be on the Retime property, and where does it sit,
   before Slow, Fast, Smooth and Sharp come back?
 - Now an OCIO colour space transform can sit either side of a LUT, does the LUT still need
   log input spaces of its own?
-- Can anyone run the Linux zero-copy Viewer on a box with a real GPU, or does that path
-  stay unproven for v1?
-- Are you buying a Windows code-signing certificate, and which kind, so the installer step
-  can be written around it?
-- Will you run make-fixture.jsx in After Effects again with roving forced on a key?
-- Can you render `fixture.aep` out of After Effects, and which comps, frames and format,
-  so the golden-frame comparison has a reference?
-- Next time you are in After Effects, can you add the four owed fixture rows: real footage,
-  an off-size effect, a dragged and stretched layer, a second reflected layer?
-- Should a table of After Effects' English property names ship, or does the importer keep
-  falling back to the match name?
+
+- AE import questions are parked for now: roving keys, golden-frame renders, the four
+  owed fixture rows, and whether a table of After Effects' property names ships.
