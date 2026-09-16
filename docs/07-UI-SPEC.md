@@ -80,7 +80,8 @@ A **workspace** is a named, saveable arrangement of panels (glossary §7).
   reordered, deleted, exported, and imported.
 - Workspaces are stored per user in the configuration directory as individual
   human-readable files, so they can be shared (the montage scene shares everything).
-  They are never stored in the project.
+  A *named* workspace is never stored in the project; the bare arrangement in force when a
+  project was saved is, and §1.5 says which of the two answers on open.
 - A workspace switcher MUST be visible in the main window chrome (a compact strip of
   workspace names) and in the Window menu; `Alt+Shift+1…9` switches by position.
 - Switching workspaces MUST NOT close, reload, or re-evaluate anything — it only
@@ -112,8 +113,25 @@ composition, and the first view bound to each takes that composition's, so no pr
 looking different from how it was left.
 
 Opening a project MUST restore the project-side state above regardless of which workspace is
-active. A project opened on another machine therefore looks like the same *edit* even though
-the panel arrangement is the local user's own.
+active.
+
+**One amendment: the arrangement travels with the file too.** A project stores the
+arrangement it was last saved with, in the opaque `ui_state` blob
+([10-FILE-FORMAT.md](10-FILE-FORMAT.md) §1.1), and every save updates it. Of the arrangement,
+only panel names, tab indices and fractional shares go in there. No paths, no window
+placements, no pixel sizes, nothing that would read differently on another machine.
+Recording an arrangement is not an edit: it never reaches an op, Ctrl+Z never rearranges
+the window, and a project just opened reads as saved.
+
+**When the two accounts disagree, this machine's wins.** The workspace store keeps its own
+copy per project path, and that copy is the more recent account of what *this* user was
+doing, so it answers on every reopen. The file's copy answers only when there is no local
+one, which is the first time this machine sees the project. Whatever the user drags after
+that is written to their own workspace as it always was, so their preference survives
+opening a project that came with an arrangement of its own.
+
+A project opened on another machine therefore looks like the same *edit*, and on a machine
+that has never seen it, like the same arrangement too.
 
 ### 1.6 Shipped workspace presets
 
