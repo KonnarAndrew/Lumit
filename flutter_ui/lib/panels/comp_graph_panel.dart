@@ -48,9 +48,19 @@ import '../l10n/strings.dart';
 import '../shell/fx_console_frb.dart';
 import '../state/dock.dart';
 import '../state/drag_payloads.dart';
+import '../state/preview_throttle.dart';
+import '../state/timeline_columns.dart' show ValueColumn;
 import '../theme/theme.dart';
 import '../widgets/controls.dart';
 import '../widgets/marquee.dart';
+import 'effect_param_row_frb.dart'
+    show
+        EffectParamRowFrb,
+        cachedListParameterGroups,
+        cachedListParameters,
+        disabledParams,
+        paramGroupVisible,
+        paramRidersFor;
 import 'graph_panel.dart';
 import 'placeholder.dart';
 import 'timeline_extras_frb.dart' show DoubleTap;
@@ -119,6 +129,57 @@ bool compTypesFit(BridgePortType from, BridgePortType into) =>
   );
 }
 
+/// What an open box draws: its rows, the riders folded onto each of them, and
+/// the rows another control has taken over.
+typedef CompBoxRows = ({
+  List<BridgeParamInfo> rows,
+  Map<String, List<BridgeParamInfo>> riders,
+  Set<String> disabled,
+});
+
+/// The rows an open box draws, by the Effect controls panel's own rules, so a
+/// box and the panel never disagree about what an effect is showing.
+///
+/// [params] is the schema's list with the instance's derived rows after it, and
+/// [values] and [hidden] are the instance's. Out go the rows a plugin is
+/// hiding, the members of a group whose `visible_when` is unmet, the riders
+/// that belong beside their host, and a curve, whose editor is no 24px row.
+CompBoxRows compBoxRows(
+  String effect,
+  List<BridgeParamInfo> params,
+  Map<String, BridgeEffectValue> values,
+  Set<String> hidden,
+) {
+  final shown = [
+    for (final p in params)
+      if (!hidden.contains(p.id)) p,
+  ];
+  final gated = <String>{
+    for (final g in cachedListParameterGroups(effect))
+      if (!paramGroupVisible(g, values)) ...g.params,
+  };
+  final riders = <String, List<BridgeParamInfo>>{};
+  for (final p in shown) {
+    final beside = paramRidersFor(shown, p);
+    if (beside.isNotEmpty) riders[p.id] = beside;
+  }
+  final folded = {
+    for (final beside in riders.values)
+      for (final p in beside) p.id,
+  };
+  return (
+    rows: [
+      for (final p in shown)
+        if (!gated.contains(p.id) &&
+            !folded.contains(p.id) &&
+            p.kind is! BridgeParamKind_Curve)
+          p,
+    ],
+    riders: riders,
+    disabled: disabledParams(effect, values),
+  );
+}
+
 /// How far apart several boxes dropped at once are stacked, canvas units.
 const double _dropStep = 100;
 
@@ -137,11 +198,16 @@ class CompGraphPanel extends StatefulWidget {
   final List<BridgeEffectInfo> Function()? nodesLister;
   final List<BridgeEffectInfo> Function()? effectsLister;
 
+  /// The panel this canvas sits in. The Graph panel and the Timeline can both
+  /// show one, so each answers the editing keys only while its own is active.
+  final Panel host;
+
   const CompGraphPanel({
     super.key,
     required this.comp,
     this.nodesLister,
     this.effectsLister,
+    this.host = Panel.graph,
   });
 
   @override
@@ -160,6 +226,17 @@ class _CompGraphPanelState extends State<CompGraphPanel> {
 
   /// The Input declarations by key, for the kind each box wears as its kicker.
   Map<String, BridgeGraphInput> _inputs = const {};
+
+  /// Each Fx box's values and the rows it lists, read once with the graph so
+  /// an open box's controls draw from what the canvas holds: one `getInfo`
+  /// per box per document change, and nothing on a rebuild.
+  Map<String, BridgeEffectInstanceInfo> _infos = const {};
+  Map<String, CompBoxRows> _params = const {};
+
+  /// A drag on a box's control: shown at once, previewed through the render
+  /// request, committed once on release.
+  ({UuidValue node, String param, BridgeEffectValue value})? _staged;
+  final PreviewThrottle _preview = PreviewThrottle();
 
   /// Canvas positions, staged: a drag moves this map and the release commits.
   Map<String, Offset> _positions = {};
@@ -185,6 +262,7 @@ class _CompGraphPanelState extends State<CompGraphPanel> {
   Offset? _marqueeTo;
   bool _marqueeAdds = false;
   bool _searching = false;
+  bool _menuPress = false;
   Size _viewport = Size.zero;
 
   /// The canvas's own render box, so a drop from the project panel lands
@@ -208,6 +286,10 @@ class _CompGraphPanelState extends State<CompGraphPanel> {
       ui.consoleClaim = _consoleClaim;
       if (ui.deleteClaim != _deleteClaim) _priorDeleteClaim = ui.deleteClaim;
       ui.deleteClaim = _deleteClaim;
+      if (ui.copyClaim != _copyClaim) _priorCopyClaim = ui.copyClaim;
+      ui.copyClaim = _copyClaim;
+      if (ui.pasteClaim != _pasteClaim) _priorPasteClaim = ui.pasteClaim;
+      ui.pasteClaim = _pasteClaim;
     }
     _reload();
   }
@@ -224,10 +306,12 @@ class _CompGraphPanelState extends State<CompGraphPanel> {
 
   bool Function()? _priorDeleteClaim;
   bool Function()? _priorConsoleClaim;
+  bool Function()? _priorCopyClaim;
+  bool Function()? _priorPasteClaim;
 
   bool _deleteClaim() {
     final ui = _ui;
-    if (!mounted || ui == null || ui.activePanel != Panel.graph) {
+    if (!mounted || ui == null || ui.activePanel != widget.host) {
       return _priorDeleteClaim?.call() ?? false;
     }
     return _deleteSelected() || (_priorDeleteClaim?.call() ?? false);
@@ -237,13 +321,32 @@ class _CompGraphPanelState extends State<CompGraphPanel> {
     final ui = _ui;
     if (!mounted ||
         ui == null ||
-        ui.activePanel != Panel.graph ||
+        ui.activePanel != widget.host ||
         _graph == null ||
         _searching) {
       return _priorConsoleClaim?.call() ?? false;
     }
-    _openSearch(_toCanvas(Offset(_viewport.width / 2, _viewport.height / 2)));
+    _openSearch(graphClearSpot(
+      _toCanvas(Offset(_viewport.width / 2, _viewport.height / 2)),
+      [for (final b in _layout().boxes) b.rect],
+    ));
     return true;
+  }
+
+  bool _copyClaim() {
+    final ui = _ui;
+    if (!mounted || ui == null || ui.activePanel != widget.host) {
+      return _priorCopyClaim?.call() ?? false;
+    }
+    return _copySelected(ui) || (_priorCopyClaim?.call() ?? false);
+  }
+
+  bool _pasteClaim() {
+    final ui = _ui;
+    if (!mounted || ui == null || ui.activePanel != widget.host) {
+      return _priorPasteClaim?.call() ?? false;
+    }
+    return _pasteBoxes(ui) || (_priorPasteClaim?.call() ?? false);
   }
 
   void _unbind() {
@@ -253,11 +356,14 @@ class _CompGraphPanelState extends State<CompGraphPanel> {
     if (_ui?.consoleClaim == _consoleClaim) {
       _ui!.consoleClaim = _priorConsoleClaim;
     }
+    if (_ui?.copyClaim == _copyClaim) _ui!.copyClaim = _priorCopyClaim;
+    if (_ui?.pasteClaim == _pasteClaim) _ui!.pasteClaim = _priorPasteClaim;
   }
 
   @override
   void dispose() {
     _unbind();
+    _preview.cancel();
     _canvasFocus.dispose();
     super.dispose();
   }
@@ -265,7 +371,7 @@ class _CompGraphPanelState extends State<CompGraphPanel> {
   void _onSelectAllRequested() {
     final ui = _ui;
     if (!mounted || ui == null) return;
-    if (!ui.selectAllRequestIsFor(Panel.graph)) return;
+    if (!ui.selectAllRequestIsFor(widget.host)) return;
     setState(() => _pick([for (final n in _graph?.nodes ?? const []) n.id]));
   }
 
@@ -280,8 +386,34 @@ class _CompGraphPanelState extends State<CompGraphPanel> {
       // is the honest answer until the selection catches up.
       graph = null;
     }
+    // The rows an open box draws, worked out by [compBoxRows]: every parameter
+    // the schema lists and the ones the instance derives, put through the same
+    // rules the Effect controls panel applies. Read here, beside the graph,
+    // never in a build.
+    final infos = <String, BridgeEffectInstanceInfo>{};
+    final params = <String, CompBoxRows>{};
+    if (graph != null) {
+      try {
+        for (final instance in widget.comp.getNodeGraphInstances()) {
+          final key = compNodeKey(instance.id());
+          final info = instance.getInfo();
+          infos[key] = info;
+          params[key] = compBoxRows(
+            info.name,
+            [...cachedListParameters(info.name), ...info.derivedParams],
+            {for (final v in info.values) v.id: v.value},
+            info.hiddenRows.toSet(),
+          );
+        }
+      } catch (_) {
+        // The comp moved under us; the boxes draw their sockets and the
+        // next read fills the rows in.
+      }
+    }
     setState(() {
       _graph = graph;
+      _infos = infos;
+      _params = params;
       _byKey = {
         for (final n in graph?.nodes ?? const <BridgeCompNode>[])
           compNodeKey(n.id): n,
@@ -433,10 +565,17 @@ class _CompGraphPanelState extends State<CompGraphPanel> {
     for (final node in _graph!.nodes) {
       final key = compNodeKey(node.id);
       final value = _makesValue(node);
-      final placed =
-          _positions[key] ?? graphAutoPlace(value ? lower : upper, lower: value);
+      final placed = _positions[key] ??
+          graphAutoPlace(value ? lower : upper,
+              lower: value, width: graphNodeOpenWidth);
       value ? lower++ : upper++;
       final fx = node.kind == BridgeCompNodeKind.fx;
+      final open = exposed.contains(key) || value;
+      // An open box gives every parameter a row with its control on it, and
+      // is wider for them; a shut one, and a box with nothing to set, keeps
+      // the drawing's width.
+      final rows =
+          open ? _params[key]?.rows ?? const <BridgeParamInfo>[] : const [];
       boxes.add(graphLayoutBox(
         (
           key: key,
@@ -458,13 +597,116 @@ class _CompGraphPanelState extends State<CompGraphPanel> {
           outputs: _labelled(node.outputs),
         ),
         placed,
-        open: exposed.contains(key) || value,
+        open: open,
+        params: [for (final p in rows) p.id],
         width: node.kind == BridgeCompNodeKind.output
             ? graphOutNodeWidth
-            : graphNodeWidth,
+            : rows.isEmpty
+                ? graphNodeWidth
+                : graphNodeOpenWidth,
       ));
     }
     return GraphLayout(boxes);
+  }
+
+  // --- A box's own controls -----------------------------------------------
+
+  /// One parameter row on an open box: the Node panel's row, drawn from the
+  /// values the canvas holds. It writes through the same op the panel's edit
+  /// does and previews through the same request.
+  Widget _paramRow(String key, String param) {
+    final node = _byKey[key];
+    final info = _infos[key];
+    final held = _params[key];
+    final p = held?.rows.where((p) => p.id == param).firstOrNull;
+    final ui = _ui;
+    if (node == null ||
+        info == null ||
+        held == null ||
+        p == null ||
+        ui == null) {
+      return const SizedBox.shrink();
+    }
+    final values = {for (final v in info.values) v.id: v.value};
+    final staged = _staged;
+    BridgeEffectValue? valueOf(String id) =>
+        staged != null && staged.node == node.id && staged.param == id
+            ? staged.value
+            : values[id];
+    return EffectParamRowFrb(
+      key: ValueKey<String>('graph-row-$key-$param'),
+      effectId: node.id,
+      param: p,
+      value: valueOf(param),
+      comp: widget.comp,
+      // A node graph has no layers: a layer row is a socket on the box, and
+      // the row draws its dash (§4.3).
+      ownerLayerId: node.id,
+      ownerLayers: const [],
+      playheadFrame: ui.playheadFrame.value,
+      onSeek: (frame) => ui.playheadFrame.value = frame,
+      onWrite: _writeParam,
+      onLive: _liveParam,
+      rowPadding: EdgeInsets.zero,
+      valueColumn: const ValueColumn(graphControlColumn, graphRowInset),
+      siblings: values,
+      // Greyed where another control has taken the row over, so a drag on the
+      // box cannot commit an op that changes no pixel.
+      enabled: !held.disabled.contains(param),
+      riders: [
+        for (final r in held.riders[param] ?? const <BridgeParamInfo>[])
+          (r, valueOf(r.id)),
+      ],
+      // The one Action a box carries is the Node graph's Open graph, and the
+      // canvas already knows how to go in.
+      onAction: (_, __) => _enterBox(node),
+    );
+  }
+
+  /// The staged boxes with one value written into one of them: what a
+  /// preview sends and what a commit sends.
+  List<BridgeEffectInstance> _instancesWith(
+      UuidValue node, String param, BridgeEffectValue value) {
+    final instances = widget.comp.getNodeGraphInstances();
+    for (final instance in instances) {
+      if (instance.id() == node) instance.setValue(id: param, value: value);
+    }
+    return instances;
+  }
+
+  /// A typed value, or the release of a drag: one `setNodeGraph`, one undo
+  /// step, exactly what the Node panel's edit commits.
+  void _writeParam(UuidValue node, String param, BridgeEffectValue value) {
+    _preview.cancel();
+    final List<BridgeEffectInstance> instances;
+    try {
+      instances = _instancesWith(node, param, value);
+    } catch (_) {
+      return;
+    }
+    _staged = null;
+    _commit(_wiringNow(), instances: instances);
+  }
+
+  /// A drag tick: the row shows it and the Viewer previews it; nothing is
+  /// committed.
+  void _liveParam(UuidValue node, String param, BridgeEffectValue value) {
+    final ui = _ui;
+    if (ui == null) return;
+    setState(() => _staged = (node: node, param: param, value: value));
+    // Read inside the closure: a held tick must send the newest staged
+    // value, not the one that was current when it was held.
+    _preview.request(() {
+      try {
+        widget.comp.renderFrameWithGraphPreview(
+          frame: BigInt.from(ui.playheadFrame.value),
+          scale: ui.viewerScale,
+          instances: _instancesWith(node, param, value),
+        );
+      } catch (_) {
+        // The graph moved under the drag; the release re-reads.
+      }
+    });
   }
 
   // --- Wires --------------------------------------------------------------
@@ -759,6 +1001,9 @@ class _CompGraphPanelState extends State<CompGraphPanel> {
     _commit(
       _wiringNow(
         edges: _wiredIn(id, inputs, outputs, wire, after),
+        // A new box starts open, its rows showing; a box already in a saved
+        // graph keeps whatever the file says.
+        exposed: [..._graph!.wiring.exposed, id],
         pending: {key: id},
       ),
       instances: instances,
@@ -768,7 +1013,8 @@ class _CompGraphPanelState extends State<CompGraphPanel> {
 
   // --- The console --------------------------------------------------------
 
-  /// Ctrl+Space, and a wire let go over empty canvas, open the console, the
+  /// Ctrl+Space, Tab, Shift+A, a right-click and a wire let go over empty
+  /// canvas all open the console, the
   /// same popover the shell opens, wearing this canvas's own list: the
   /// project's items as Read boxes, the four Input kinds, the effects, then
   /// the boxes only a graph can hold.
@@ -1061,6 +1307,65 @@ class _CompGraphPanelState extends State<CompGraphPanel> {
     return true;
   }
 
+  // --- Copy and paste -----------------------------------------------------
+
+  /// Copy the picked boxes as saved-group text, never the Output. Where their
+  /// top-left corner stood rides along, so a paste with the pointer elsewhere
+  /// lands just off the originals.
+  bool _copySelected(LumitUiState ui) {
+    final graph = _graph;
+    if (graph == null) return false;
+    final ids = [
+      for (final id in _selection.values)
+        if (id != graph.wiring.output) id,
+    ];
+    if (ids.isEmpty) return false;
+    final layout = _layout();
+    final corners = [
+      for (final id in ids)
+        if (layout.byKey[compNodeKey(id)] case final box?) box.rect.topLeft,
+    ];
+    final String text;
+    try {
+      text = widget.comp.saveGraphGroup(name: '', colour: 0, nodes: ids);
+    } catch (_) {
+      return false;
+    }
+    ui.clipboard.boxes = (
+      text: text,
+      at: corners.fold(corners.firstOrNull ?? Offset.zero,
+          (a, b) => Offset(math.min(a.dx, b.dx), math.min(a.dy, b.dy))),
+    );
+    return true;
+  }
+
+  /// Paste the copied boxes at the pointer, or beside where they were copied
+  /// from when the pointer is off this canvas. One op, and they become the pick.
+  bool _pasteBoxes(LumitUiState ui) {
+    final held = ui.clipboard.boxes;
+    if (_graph == null || held == null) return false;
+    final at = _pointerOnCanvas ??
+        held.at + const Offset(graphDotGrid * 2, graphDotGrid * 2);
+    final List<UuidValue> ids;
+    try {
+      ids = widget.comp.pasteGraphBoxes(text: held.text, x: at.dx, y: at.dy);
+    } catch (_) {
+      // Refused whole, so the document is as it was.
+      return true;
+    }
+    ui.model.refresh();
+    _reload();
+    setState(() => _pick(ids));
+    return true;
+  }
+
+  /// Where the pointer is on this canvas, in canvas units, or null when it is
+  /// somewhere else.
+  Offset? get _pointerOnCanvas {
+    final local = graphPointerIn(_canvasKey);
+    return local == null ? null : _toCanvas(local);
+  }
+
   // --- Dropping a box into a wire (N7) ------------------------------------
 
   ({BridgeCompEdge edge, GraphSocket into, GraphSocket outOf})? _dropInsert(
@@ -1108,6 +1413,7 @@ class _CompGraphPanelState extends State<CompGraphPanel> {
 
   void _down(PointerDownEvent event, GraphLayout layout) {
     _canvasFocus.requestFocus();
+    _menuPress = false;
     if (_claimed) {
       _claimed = false;
       return;
@@ -1170,6 +1476,12 @@ class _CompGraphPanelState extends State<CompGraphPanel> {
 
     if (event.buttons == kMiddleMouseButton) {
       setState(() => _panFrom = _pan - event.localPosition);
+      return;
+    }
+    // A right-click on empty ground opens the console on release.
+    if (event.buttons == kSecondaryMouseButton &&
+        _ui!.workspace.interface.rightClickOpensNodeSearch) {
+      _menuPress = true;
       return;
     }
     final keys = HardwareKeyboard.instance;
@@ -1305,6 +1617,12 @@ class _CompGraphPanelState extends State<CompGraphPanel> {
       return;
     }
 
+    if (_menuPress) {
+      _menuPress = false;
+      if (!moved) _openSearch(at);
+      return;
+    }
+
     if (_marqueeFrom case final from?) {
       final to = _marqueeTo;
       final adds = _marqueeAdds;
@@ -1386,6 +1704,14 @@ class _CompGraphPanelState extends State<CompGraphPanel> {
         final entry =
             listGraphNodes().where((e) => e.name == 'node_graph').firstOrNull;
         if (entry != null) _addFx(entry, at, graph: dropped);
+      case EffectDragData(:final name):
+        // From Effects & presets: the box the console would add, where it
+        // was let go.
+        final info = [
+          ...(widget.effectsLister ?? listEffects)(),
+          ...(widget.nodesLister ?? listGraphNodes)(),
+        ].where((e) => e.name == name && name != 'node_graph').firstOrNull;
+        if (info != null) _addFx(info, at);
     }
   }
 
@@ -1480,16 +1806,31 @@ class _CompGraphPanelState extends State<CompGraphPanel> {
       focusNode: _canvasFocus,
       onKeyEvent: (node, event) {
         if (event is! KeyDownEvent) return KeyEventResult.ignored;
-        if (event.logicalKey == LogicalKeyboardKey.delete ||
-            event.logicalKey == LogicalKeyboardKey.backspace) {
+        // Only the canvas itself: a value well on a box, or a rename field,
+        // is typing these.
+        if (node.hasPrimaryFocus &&
+            (event.logicalKey == LogicalKeyboardKey.delete ||
+                event.logicalKey == LogicalKeyboardKey.backspace)) {
           _deleteSelected();
+          return KeyEventResult.handled;
+        }
+        // Only the canvas itself: a rename field inside it types these.
+        if (node.hasPrimaryFocus &&
+            graphAddKey(event, _ui!.workspace.interface)) {
+          _openSearch(_pointerOnCanvas ??
+              graphClearSpot(
+                _toCanvas(Offset(_viewport.width / 2, _viewport.height / 2)),
+                [for (final b in _layout().boxes) b.rect],
+              ));
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
       },
       child: DragTarget<Object>(
         onWillAcceptWithDetails: (details) =>
-            details.data is FootageDragData || details.data is CompDragData,
+            details.data is FootageDragData ||
+            details.data is CompDragData ||
+            details.data is EffectDragData,
         onAcceptWithDetails: (details) => _dropped(details.data, details.offset),
         builder: (context, candidate, _) => Listener(
           onPointerDown: (e) => _down(e, layout),
@@ -1582,6 +1923,7 @@ class _CompGraphPanelState extends State<CompGraphPanel> {
                               onRenamed: (name) => _rename(box.key, name),
                               onRenameCancelled: () =>
                                   setState(() => _renaming = null),
+                              paramRow: (param) => _paramRow(box.key, param),
                             ),
                           ),
                       ],

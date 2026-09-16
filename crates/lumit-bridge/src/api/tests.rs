@@ -4436,6 +4436,34 @@ fn precompose_sound_mix_nests_a_comp_per_row_and_clears_the_mark() {
 /// layer all have to land where they landed.
 ///
 /// **Needs the decoder**: there is nothing to mix without one.
+/// Media that was missing when first asked gets its sound and mute switch back once relinked.
+#[cfg(feature = "media")]
+#[test]
+fn relinked_missing_media_has_its_sound_back() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let gone = dir.path().join("gone.wav");
+    let moved = dir.path().join("moved.wav");
+    std::fs::write(&moved, silent_wav()).expect("wrote the fixture");
+    if !lumit_media::probe::probe(moved.as_path()).is_ok_and(|p| p.audio.is_some()) {
+        // No decoder here that reads the fixture, so there is nothing to test.
+        return;
+    }
+
+    let project = LumitBridgeState::new_project(None).expect("a new project");
+    let comp = project.new_composition("Scene".into(), None).expect("comp");
+    let footage = project
+        .import_footage(gone.to_string_lossy().into_owned())
+        .expect("imported");
+    comp.add_audio_layer(&footage).expect("an Audio layer");
+    let layer = comp.get_layers().expect("layers").remove(0);
+    assert!(!layer.has_audio().expect("asked"), "nothing to hear yet");
+
+    footage
+        .relink(moved.to_string_lossy().into_owned())
+        .expect("relinked");
+    assert!(layer.has_audio().expect("asked"));
+}
+
 #[cfg(feature = "media")]
 #[test]
 fn the_packed_mix_plays_the_same_samples() {
@@ -14790,6 +14818,15 @@ fn a_merge_is_refused_on_a_layer_stack() {
         layer.add_effect("node_graph".into()).is_err(),
         "the Node graph effect is added through the door that names a graph"
     );
+    for name in ["split_channels", "combine_channels"] {
+        assert!(
+            matches!(
+                layer.add_effect(name.into()),
+                Err(BridgeError::NotAStackEffect)
+            ),
+            "{name} is refused as Merge is"
+        );
+    }
 
     let names = |list: Vec<crate::api::effect::BridgeEffectInfo>| -> Vec<String> {
         list.into_iter().map(|e| e.name).collect()
@@ -14963,7 +15000,14 @@ fn a_graph_drag_previews_without_touching_the_document() {
 fn the_graphs_own_door_takes_what_a_stack_refuses() {
     let (_project, graph, _) = node_graph_to_wire();
 
-    for name in ["merge", "switch", "wiggle", "blur"] {
+    for name in [
+        "merge",
+        "switch",
+        "split_channels",
+        "combine_channels",
+        "wiggle",
+        "blur",
+    ] {
         let instance = graph
             .new_graph_instance(name.to_owned(), None)
             .expect("the graph takes it");
@@ -15434,6 +15478,148 @@ fn a_graph_group_saves_its_boxes_and_inserts_them_fresh() {
     assert_eq!(unique.len(), ids.len(), "every id is minted at insert");
 }
 
+/// **Pasting boxes** is a group insert with no wash left behind: fresh ids,
+/// the wire between them and their values come across, and it undoes in one.
+#[test]
+fn pasting_graph_boxes_mints_fresh_ids_and_adds_no_group() {
+    let (project, graph, _) = node_graph_to_wire();
+
+    let mut blur = graph
+        .new_graph_instance("blur".into(), None)
+        .expect("a blur box");
+    blur.set_value(
+        "radius".into(),
+        BridgeEffectValue::Float(BridgeScalar::Static(40.0)),
+    )
+    .expect("staged");
+    let glow = graph
+        .new_graph_instance("glow".into(), None)
+        .expect("a glow box");
+    let (blur_id, glow_id) = (blur.id(), glow.id());
+    let mut wiring = wiring_of(&graph);
+    wiring.edges.push(BridgeCompEdge {
+        from: blur_id,
+        from_port: "output".into(),
+        to: glow_id,
+        to_port: "input".into(),
+    });
+    graph
+        .set_node_graph(vec![blur, glow], wiring)
+        .expect("two wired boxes");
+
+    let text = graph
+        .save_graph_group(String::new(), 0, vec![blur_id, glow_id])
+        .expect("copied");
+    let before = graph.get_node_graph().expect("the graph");
+    let pasted = graph.paste_graph_boxes(text, 100.0, 50.0).expect("pasted");
+    let after = graph.get_node_graph().expect("the graph");
+
+    assert_eq!(pasted.len(), 2, "the fresh ids come back");
+    assert!(pasted.iter().all(|id| *id != blur_id && *id != glow_id));
+    assert_eq!(after.nodes.len(), before.nodes.len() + 2);
+    assert!(
+        after
+            .wiring
+            .edges
+            .iter()
+            .any(|e| e.from == pasted[0] && e.to == pasted[1]),
+        "the wire between them came too"
+    );
+    assert!(
+        after.wiring.groups.is_empty(),
+        "a paste leaves no group behind"
+    );
+    let radius = graph
+        .get_node_graph_instances()
+        .expect("instances")
+        .into_iter()
+        .find(|i| i.id() == pasted[0])
+        .expect("the pasted blur")
+        .get_info()
+        .values
+        .into_iter()
+        .find(|v| v.id == "radius")
+        .expect("a radius row");
+    assert!(matches!(
+        radius.value,
+        BridgeEffectValue::Float(BridgeScalar::Static(x)) if (x - 40.0).abs() < 1e-9
+    ));
+
+    project.undo().expect("undone");
+    assert_eq!(
+        graph.get_node_graph().expect("the graph").nodes.len(),
+        before.nodes.len(),
+        "one undo step"
+    );
+}
+
+/// **A paste opens its boxes; a saved group keeps its own arrangement.** The
+/// two share one insert, and a group laid out with shut boxes overlaps itself
+/// the moment every box arrives 300 wide.
+#[test]
+fn an_inserted_graph_group_keeps_its_boxes_shut_and_a_paste_opens_them() {
+    let (_project, graph, _) = node_graph_to_wire();
+
+    let blur = graph
+        .new_graph_instance("blur".into(), None)
+        .expect("a blur box");
+    let blur_id = blur.id();
+    let wiring = wiring_of(&graph);
+    graph
+        .set_node_graph(vec![blur], wiring)
+        .expect("one box, saved shut");
+    let text = graph
+        .save_graph_group("Soft".into(), 0, vec![blur_id])
+        .expect("saved");
+
+    graph
+        .insert_graph_group(text.clone(), 40.0, 60.0)
+        .expect("inserted");
+    assert!(
+        graph
+            .get_node_graph()
+            .expect("the graph")
+            .wiring
+            .exposed
+            .is_empty(),
+        "an insert keeps the state the group was saved with"
+    );
+
+    let pasted = graph.paste_graph_boxes(text, 200.0, 60.0).expect("pasted");
+    assert_eq!(
+        graph.get_node_graph().expect("the graph").wiring.exposed,
+        pasted,
+        "a paste opens its boxes, as a box added any other way is"
+    );
+}
+
+/// A pasted Input beside its original takes the next free id, since the id
+/// is its row outside the graph and two Inputs cannot share one.
+#[test]
+fn a_pasted_input_takes_the_next_free_id() {
+    let (_project, graph, _) = node_graph_to_wire();
+    a_graph_with_inputs(&graph, &["amount"]);
+    let original = wiring_of(&graph).inputs[0].id;
+
+    let text = graph
+        .save_graph_group(String::new(), 0, vec![original])
+        .expect("copied");
+    graph
+        .paste_graph_boxes(text.clone(), 0.0, 0.0)
+        .expect("pasted");
+    graph
+        .paste_graph_boxes(text, 0.0, 0.0)
+        .expect("pasted again");
+
+    let mut ids: Vec<String> = wiring_of(&graph)
+        .inputs
+        .into_iter()
+        .map(|i| i.input.id)
+        .collect();
+    ids.sort();
+    assert_eq!(ids, vec!["amount", "amount_2", "amount_3"]);
+}
+
 /// A group file the engine did not write is refused, each in its own way: an
 /// unknown text is not one of ours, and a text carrying an Output is a graph
 /// the engine refuses **whole**, leaving the document as it was (§5.8).
@@ -15576,7 +15762,14 @@ fn the_graph_console_offers_time_offset_and_never_layer_points() {
     );
 
     let menu = names(list_effects());
-    for compositing in ["time_offset", "merge", "switch", "node_graph"] {
+    for compositing in [
+        "time_offset",
+        "merge",
+        "switch",
+        "split_channels",
+        "combine_channels",
+        "node_graph",
+    ] {
         assert!(
             !menu.contains(&compositing.to_owned()),
             "{compositing} has no place on a layer stack"

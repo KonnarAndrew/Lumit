@@ -8,6 +8,7 @@
 
 // Aliased, and not as `ui`: this file already calls the session state `ui`, and
 // a local of that name would shadow the prefix where it is needed.
+import 'dart:async';
 import 'dart:ui' as dartui;
 
 import 'package:flutter/widgets.dart';
@@ -824,11 +825,25 @@ class _MissingBadge extends StatefulWidget {
 
 class _MissingBadgeState extends State<_MissingBadge> {
   int _missing = 0;
+  int _round = 0;
+  StreamSubscription? _changes;
 
   @override
   void initState() {
     super.initState();
     _probe();
+    // A relink changes the count without changing the layers.
+    _changes = Provider.of<LumitState>(context, listen: false)
+        .onChange
+        .listen((event) {
+      if (event.items) _probe();
+    });
+  }
+
+  @override
+  void dispose() {
+    _changes?.cancel();
+    super.dispose();
   }
 
   @override
@@ -838,6 +853,7 @@ class _MissingBadgeState extends State<_MissingBadge> {
   }
 
   Future<void> _probe() async {
+    final round = ++_round;
     var count = 0;
     for (final f in widget.footage) {
       // A probe outlives the document it was started for: opening a project
@@ -851,7 +867,9 @@ class _MissingBadgeState extends State<_MissingBadge> {
         return;
       }
     }
-    if (mounted && count != _missing) setState(() => _missing = count);
+    // An older count that lands late is dropped.
+    if (!mounted || round != _round) return;
+    if (count != _missing) setState(() => _missing = count);
   }
 
   @override

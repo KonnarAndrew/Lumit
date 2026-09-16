@@ -12,6 +12,15 @@ sRGB-vs-linear confusion, texture churn, and treating device-loss as exotic.
   a second). This is set where the device is created, in `lumit-gpu` (`WGPU_BACKEND` still
   overrides for debugging). Store `AdapterInfo` — the degradation ladder and bug workarounds
   key off vendor.
+- On Windows the *executable* has to ask for the discrete card as well. A hybrid laptop
+  gives a process the integrated GPU, so ANGLE sits there (Flutter draws through it, and it
+  is what opens the Viewer's shared handle) while `PowerPreference::HighPerformance` puts
+  wgpu on the discrete card. A D3D12 shared handle will not open across two adapters, so the
+  texture registers, never draws, and the user gets a black preview with working audio
+  (reported against 0.4.0). `NvOptimusEnablement` and `AmdPowerXpressRequestHighPerformance`
+  are exported from `flutter_ui/windows/runner/main.cpp` to put both on the same card. The
+  per-app Windows graphics setting still beats the export, which is where a user who wants
+  the integrated card says so.
 - Required features: `TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES` not needed; do require
   `TIMESTAMP_QUERY` (profiler) and `FLOAT32_FILTERABLE` optional-with-fallback. fp16
   storage/filtering (`Rgba16Float`) is core — no feature flag needed.
@@ -128,3 +137,6 @@ injects loss; do not ship recovery untested — it is the kind of code that sile
 3. Device-loss drill: inject loss during a 100-node render; assert recovery < 5 s, no
    panic, RAM cache intact, identical pixels after re-render.
 4. Timestamp overhead: profiler on vs off < 2% frame-time delta.
+5. Runner exports: `flutter_ui/test/discrete_gpu_pin_test.dart` reads
+   `windows/runner/main.cpp` and fails if either hybrid-GPU export is missing or zero.
+   Nothing in a test can call them, they only work from the shipped executable.

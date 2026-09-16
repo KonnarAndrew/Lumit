@@ -115,6 +115,7 @@ own, on that same reasoning.
 ```rust
 struct MediaRef {
     relative_path: String,     // what the FILE stores: rebased on save, / slashes
+                               // (the whole path for media on another drive)
     absolute_path: String,     // session-state: where the file is on THIS machine —
                                // never serialized (it embeds the username)
     fingerprint: Option<Fingerprint>, // stamped on save; drives relink step 3 (10 §2)

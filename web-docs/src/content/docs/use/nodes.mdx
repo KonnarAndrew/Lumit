@@ -39,11 +39,18 @@ hand as it lands. **Heal** reconnects the neighbours of a deleted box.
 - **Frame all** fits every box on screen.
 - A **primary drag on empty canvas** sweeps a selection box. Click replaces the selection,
   `Ctrl`-click toggles one, `Shift`-click adds, and `Ctrl+A` selects everything.
+- **Dragging an effect** from [Effects & presets](/panels/effects-presets/) onto the canvas
+  adds it: an effect joins the stack, a driver lands where it is let go.
+- A **right-click on empty canvas**, or **`Tab`** or **`Shift+A`** with the canvas focused,
+  opens the node search at the pointer, as `ctrl+space` does. Each of the three can be turned
+  off in [Settings ▸ Timeline](/use/settings/#timeline).
 - **`ctrl+space`** opens the node search. With a wire in hand the results are filtered to the
   kinds that wire can join, and picking one connects it.
 
-Each box carries two small badges. the checkbox enables or disables a specific node and the 
-picture passes through untouched. Twirl exposes the node, displaying all parameters sockets.
+Each box carries two small badges. The checkbox enables or disables a specific node and the 
+picture passes through untouched. The twirl opens the node, displaying a socket for every 
+parameter. In a [node graph](/use/node-graphs/) an open node also carries the parameters' 
+controls.
 
 The checkbox and the wires say the same thing. A bypassed effect is drawn unwired — hollow
 sockets, and the chain running from the box before it to the box after — so switching one

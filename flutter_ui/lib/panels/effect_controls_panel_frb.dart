@@ -61,6 +61,7 @@ import '../widgets/controls.dart';
 import '../widgets/curve_editor.dart';
 import 'effect_param_row_frb.dart';
 import 'graph_panel.dart' show drivenParamsOf, graphCompById;
+import 'node_panel.dart' show NodePanelFrb;
 import 'camera_track_display_frb.dart';
 import 'plane_display_frb.dart';
 import 'planar_track_display_frb.dart';
@@ -335,6 +336,12 @@ class _EffectControlsPanelFrbState extends State<EffectControlsPanelFrb> {
   bool Function()? _priorCopyClaim;
   bool Function()? _priorPasteClaim;
 
+  /// Whether the editing keys are this panel's to answer: it is focused and
+  /// showing a layer's effects. Over a node graph it shows a box instead, and
+  /// the layer it last held is in another comp.
+  bool _editsLayers(LumitUiState ui) =>
+      ui.activePanel == Panel.effectControls && !ui.model.isNodeGraph;
+
   void _unbindDriven() {
     _boundUi?.selectedLayer.removeListener(_readDriven);
     _boundUi?.model.removeListener(_readDriven);
@@ -352,7 +359,7 @@ class _EffectControlsPanelFrbState extends State<EffectControlsPanelFrb> {
 
   bool _copyClaim() {
     final ui = _boundUi;
-    if (!mounted || ui == null || ui.activePanel != Panel.effectControls) {
+    if (!mounted || ui == null || !_editsLayers(ui)) {
       return _priorCopyClaim?.call() ?? false;
     }
     return _copyPickedEffects(ui) || (_priorCopyClaim?.call() ?? false);
@@ -360,7 +367,7 @@ class _EffectControlsPanelFrbState extends State<EffectControlsPanelFrb> {
 
   bool _pasteClaim() {
     final ui = _boundUi;
-    if (!mounted || ui == null || ui.activePanel != Panel.effectControls) {
+    if (!mounted || ui == null || !_editsLayers(ui)) {
       return _priorPasteClaim?.call() ?? false;
     }
     return _pastePickedEffects(ui) || (_priorPasteClaim?.call() ?? false);
@@ -368,7 +375,7 @@ class _EffectControlsPanelFrbState extends State<EffectControlsPanelFrb> {
 
   bool _deleteClaim() {
     final ui = _boundUi;
-    if (!mounted || ui == null || ui.activePanel != Panel.effectControls) {
+    if (!mounted || ui == null || !_editsLayers(ui)) {
       return _priorDeleteClaim?.call() ?? false;
     }
     return _deletePickedEffects(ui) || (_priorDeleteClaim?.call() ?? false);
@@ -409,7 +416,9 @@ class _EffectControlsPanelFrbState extends State<EffectControlsPanelFrb> {
   void _onSelectAllRequested() {
     final ui = _boundUi;
     if (!mounted || ui == null) return;
-    if (!ui.selectAllRequestIsFor(Panel.effectControls)) return;
+    if (!ui.selectAllRequestIsFor(Panel.effectControls) || !_editsLayers(ui)) {
+      return;
+    }
     final layer = ui.selectedLayer.value ?? _lastLayer;
     if (layer == null) return;
     final info = ui.model.byId(layer.internallayerId)?.info;
@@ -546,6 +555,8 @@ class _EffectControlsPanelFrbState extends State<EffectControlsPanelFrb> {
         hint: l10n.effectControlsNoComp,
       );
     }
+    // A node graph has no layers, so the picked box's rows go here instead.
+    if (ui.model.isNodeGraph) return const NodePanelFrb();
 
     return ValueListenableBuilder<UuidValue?>(
       valueListenable: ui.selectedGroupHeader,
@@ -2035,17 +2046,7 @@ class _EffectSection extends StatelessWidget {
         memberOf[m] = g;
       }
     }
-    bool groupVisible(BridgeParamGroup g) {
-      final param = g.visibleWhenParam;
-      final want = g.visibleWhenValues;
-      if (param == null || want.isEmpty) return true;
-      return switch (values[param]) {
-        // A group may answer to SEVERAL modes (the flare's
-        // source-colour toggle belongs to Matte and Lights alike).
-        BridgeEffectValue_Choice(:final field0) => want.contains(field0),
-        _ => false,
-      };
-    }
+    bool groupVisible(BridgeParamGroup g) => paramGroupVisible(g, values);
 
     // Which rows another parameter has taken over (`EnabledWhen`).
     // Judged on what the panel is SHOWING, staged drag included, so ticking a
@@ -2057,37 +2058,12 @@ class _EffectSection extends StatelessWidget {
     };
     final disabled = disabledParams(info.name, shown);
 
-    // **The uniform Matte row** and **the Mix row**. A Layer
-    // picker carries its Channel choice and Invert switch beside it on one
-    // row, a Mix slider its Blend choice, and none of the riders gets a row of
-    // its own. A rider is found by id convention among the parameters the
-    // schema places RIGHT AFTER its host — `matte` + `matte_invert` +
-    // `matte_channel`, Depth of field's older `depth` + `depth_invert`, whose
-    // stored ids are kept, and `mix` + `blend` — so the injected rows and
-    // the effects that predate them fold the same way without a table here
-    // naming them, and a channel an effect declares elsewhere for itself
-    // (Depth of field's `depth_channel`, three twirls down) stays the row it
-    // always was, as does the Lens flare's own `blend`, which sits BEFORE its
-    // Mix. Choices draw before switches so the row reads picker, Channel,
-    // Invert. It costs no bridge call: `params` is the cached schema this
-    // method already read.
-    List<BridgeParamInfo> ridersFor(BridgeParamInfo p) {
-      final names = switch (p.kind) {
-        BridgeParamKind_Layer() => {'${p.id}_invert', '${p.id}_channel'},
-        BridgeParamKind_Float() when p.id == 'mix' => {'blend'},
-        _ => const <String>{},
-      };
-      final out = <BridgeParamInfo>[];
-      for (var i = params.indexOf(p) + 1;
-          i < params.length && names.contains(params[i].id);
-          i++) {
-        out.add(params[i]);
-      }
-      out.sort((a, b) =>
-          (a.kind is BridgeParamKind_Bool ? 1 : 0) -
-          (b.kind is BridgeParamKind_Bool ? 1 : 0));
-      return out;
-    }
+    // The uniform Matte row and the Mix row: a Layer picker carries its Channel
+    // and Invert beside it, a Mix slider its Blend, and no rider gets a row of
+    // its own. [paramRidersFor] holds the rule, so the box on the node graph
+    // canvas folds by the same one.
+    List<BridgeParamInfo> ridersFor(BridgeParamInfo p) =>
+        paramRidersFor(params, p);
 
     final folded = <String>{
       for (final p in params)

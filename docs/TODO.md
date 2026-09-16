@@ -44,10 +44,9 @@ lives. Delete a point when it lands, its regression test is the record.
 
 **Node graph** (docs/impl/node-graph-comp.md §8)
 - P4: Save group and the saved groups in the canvas console, the picture Input's preview
-  picker, the no-stream word on box rows. The bridge calls exist, nothing calls them.
-- P5: a graph's Fx boxes as Timeline rows, placed graph Inputs in Effect controls and the
-  Timeline, dimmed collapse and audio cells, the Retime clock face. `use/node-graphs.mdx`
-  already describes these.
+  picker, the no-stream word on box rows. The bridge calls exist, only copy uses one.
+- P5: placed graph Inputs in Effect controls and a Timeline fold, dimmed collapse and audio
+  cells, the Retime clock face. `use/node-graphs.mdx` already describes these.
 - More drivers: Colour ramp.
 - The effects console rows show a placeholder gradient instead of preview thumbnails.
 - A point row can't show it's driven (`EffectPointRowFrb`).

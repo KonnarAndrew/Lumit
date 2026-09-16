@@ -43,6 +43,7 @@ import 'package:lumit_flutter/src/rust/api/keymap.dart';
 import 'package:lumit_flutter/state/keymap.dart';
 import 'package:lumit_flutter/src/rust/api/layer.dart';
 import 'package:lumit_flutter/src/rust/api/project_item.dart';
+import 'package:lumit_flutter/src/rust/api/state.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
@@ -78,6 +79,7 @@ import 'key_block.dart';
 import 'easing_editor.dart';
 import 'graph_editor_frb.dart';
 import 'graph_maths.dart';
+import 'comp_graph_panel.dart' show CompGraphPanel;
 import 'graph_panel.dart' show DrivenParam, drivenParamsOf;
 import 'key_ease_fields.dart' show KeyEaseClaim;
 import 'timeline_extras_frb.dart';
@@ -188,6 +190,9 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
   /// A layer with no entry is assumed to have one: the visibility switch is
   /// the one nearly every layer uses.
   final Map<String, bool> _hasPicture = {};
+
+  /// Project item changes, which is how a relink reaches this panel.
+  StreamSubscription<ScopedChange>? _itemChanges;
 
   /// Each open lane's peaks and spectrogram, by layer id — the stretch of
   /// source it is currently showing, summarised to one bucket per pixel
@@ -865,6 +870,13 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
         });
       });
     }
+  }
+
+  /// A relink can bring a missing clip's sound and picture back, so every
+  /// layer that had no sound is asked again.
+  void _onItemsChanged(ScopedChange event) {
+    if (!event.items || !mounted || !_hasAudio.containsValue(false)) return;
+    setState(() => _hasAudio.removeWhere((_, has) => !has));
   }
 
   String _search = '';
@@ -1822,11 +1834,16 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
     // is kept, not looked up again: `dispose` runs after the element is
     // deactivated, where an ancestor lookup is no longer safe.
     _ui = Provider.of<LumitUiState>(context, listen: false);
+    _itemChanges = Provider.of<LumitState>(context, listen: false)
+        .onChange
+        .listen(_onItemsChanged);
     // Chained, not overwritten: Effect controls may hold the claim already.
     _priorDeleteClaim = _ui!.deleteClaim;
-    _ui!.deleteClaim = _deleteClaim;
-    _ui!.copyClaim = _copySelectedKeys;
-    _ui!.pasteClaim = _pasteKeysIntoSelection;
+    _priorCopyClaim = _ui!.copyClaim;
+    _priorPasteClaim = _ui!.pasteClaim;
+    _ui!.deleteClaim = _claimDelete;
+    _ui!.copyClaim = _claimCopy;
+    _ui!.pasteClaim = _claimPaste;
     _publishEasingClaim();
     // An effect can be picked in the Effect controls panel too, and one
     // selection means the row here lights up when it is.
@@ -2191,6 +2208,29 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
     return true;
   }
 
+  /// The copy and paste claims this panel took over from panels mounted
+  /// before it. Those only answer while they are the active panel, so they
+  /// are asked first, and a node graph has no keys here for this panel to act
+  /// on.
+  bool Function()? _priorCopyClaim;
+  bool Function()? _priorPasteClaim;
+
+  bool get _onNodeGraph => _ui?.model.isNodeGraph ?? false;
+
+  /// Over a node graph the canvas holds the keys, so this panel stands aside.
+  /// [_deleteClaim] asks the chain itself when it is not the active panel.
+  bool _claimDelete() => !mounted || _onNodeGraph
+      ? (_priorDeleteClaim?.call() ?? false)
+      : _deleteClaim();
+
+  bool _claimCopy() =>
+      (_priorCopyClaim?.call() ?? false) ||
+      (!_onNodeGraph && _copySelectedKeys());
+
+  bool _claimPaste() =>
+      (_priorPasteClaim?.call() ?? false) ||
+      (!_onNodeGraph && _pasteKeysIntoSelection());
+
   /// The right-click menu on a lane keyframe: the graph key's own menu —
   /// Linear / Easy ease / Hold / Delete key — plus *Ease…*, which opens the
   /// popover on whatever is selected.
@@ -2544,6 +2584,8 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
     // nothing here compares keys at all. Copy and paste were the last two
     // comparisons, and they are bound actions now like everything else.
     final ui = Provider.of<LumitUiState>(context, listen: false);
+    // Over a node graph this panel draws the canvas, which has keys of its own.
+    if (ui.model.isNodeGraph) return false;
     // This panel is one surface with two views, so a chord bound in either
     // context works in both — the view's own context first, the other as the
     // fallback. It used to fall back one way only (graph → timeline), which is
@@ -3003,6 +3045,7 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
   @override
   void dispose() {
     _mixRetry?.cancel();
+    _itemChanges?.cancel();
     laneModes.removeListener(_onLaneMode);
     HardwareKeyboard.instance.removeHandler(_onKey);
     _ui?.workspace.presetApplied.removeListener(_onPresetApplied);
@@ -3012,9 +3055,9 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
     _ui?.revealPropertyRequest.removeListener(_onRevealRequested);
     _ui?.revealFilterRequest.removeListener(_onRevealFilterRequested);
     _ui?.selectPropertyRequest.removeListener(_onSelectPropertyRequested);
-    if (_ui?.deleteClaim == _deleteClaim) _ui!.deleteClaim = _priorDeleteClaim;
-    if (_ui?.copyClaim == _copySelectedKeys) _ui!.copyClaim = null;
-    if (_ui?.pasteClaim == _pasteKeysIntoSelection) _ui!.pasteClaim = null;
+    if (_ui?.deleteClaim == _claimDelete) _ui!.deleteClaim = _priorDeleteClaim;
+    if (_ui?.copyClaim == _claimCopy) _ui!.copyClaim = _priorCopyClaim;
+    if (_ui?.pasteClaim == _claimPaste) _ui!.pasteClaim = _priorPasteClaim;
     if (_ui?.easingApply.value == _applyEasing) _ui!.easingApply.value = null;
     if (_ui?.easingKey.value?.apply == _applyKeyEase) {
       _ui!.easingKey.value = null;
@@ -3362,14 +3405,30 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
     );
   }
 
+  /// The work area, in frames, read once for the whole panel, and
+  /// once per document *revision*, not per rebuild: `workAreaFrames` is two
+  /// to four bridge calls, and only an edit can change its answer.
+  ({int start, int end, bool whole}) _workOf(
+      LumitUiState ui, CompositionReference comp) {
+    final revision = ui.model.revision;
+    if (_workArea == null || revision != _workRevision || comp != _workComp) {
+      _workRevision = revision;
+      _workComp = comp;
+      _workArea = workAreaFrames(comp);
+    }
+    return _workPreview.value ?? _workArea!;
+  }
+
   Widget _body(
       BuildContext context, LumitUiState ui, CompositionReference comp) {
-    // A node graph has no layers to draw and no layer to take a drop
-    // (docs/impl/node-graph-comp.md §4.4): its boxes are on the canvas, which
-    // is where footage dropped on a graph belongs. The hint stands in for the
-    // layer table and the ruler over it; the comp tabs stay, because they are
-    // the way back out. The fact is the read model's, so this costs no call.
+    // A node graph has no layers (docs/impl/node-graph-comp.md §4.4), so the
+    // Timeline draws its canvas instead, under the comp tabs and the ruler.
+    // The tabs are the way back out. The fact is the read model's, so this
+    // costs no call.
     if (ui.model.isNodeGraph) {
+      final t = ThemeScope.of(context).theme;
+      final frames = ui.model.durationFrames;
+      final work = _workOf(ui, comp);
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -3378,7 +3437,36 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
             uiState: ui,
             onExport: () => exportFrb(context),
           ),
-          const Expanded(child: NodeGraphTimeline()),
+          LayoutBuilder(builder: (context, box) {
+            // No zoom here, so the frames span the panel's width.
+            final axis = TimelineAxis(frames: frames, width: box.maxWidth);
+            return SizedBox(
+              height: t.density.ruler,
+              child: Stack(
+                children: [
+                  TimelineRuler(
+                    comp: comp,
+                    axis: axis,
+                    fps: ui.model.fps,
+                    height: t.density.ruler,
+                    work: work,
+                    onSeek: (f) =>
+                        ui.scrubTo(f.clamp(0, frames == 0 ? 0 : frames - 1)),
+                    onWorkArea: (span) {
+                      comp.setWorkArea(span: span);
+                      setState(() {});
+                    },
+                    onWorkPreview: (span) => _workPreview.value = span,
+                    onMarkersChanged: () => setState(() {}),
+                    cache: TimelineCacheBar(
+                        comp: comp, axis: axis, revision: _cacheRevision!),
+                  ),
+                  PlayheadOverlay(playhead: ui.playheadFrame, xOf: axis.xOf),
+                ],
+              ),
+            );
+          }),
+          Expanded(child: CompGraphPanel(comp: comp, host: Panel.timeline)),
         ],
       );
     }
@@ -3509,16 +3597,7 @@ class _TimelinePanelFrbState extends State<TimelinePanelFrb>
     final channels =
         graphChannels(layers: ui.model.layers, selected: _selectedProperties);
     _publishKeyEase(ui, channels);
-    // The work area, in frames, read once for the whole panel — and
-    // once per document *revision*, not per rebuild: `workAreaFrames` is two
-    // to four bridge calls, and only an edit can change its answer.
-    final revision = ui.model.revision;
-    if (_workArea == null || revision != _workRevision || comp != _workComp) {
-      _workRevision = revision;
-      _workComp = comp;
-      _workArea = workAreaFrames(comp);
-    }
-    final work = _workPreview.value ?? _workArea!;
+    final work = _workOf(ui, comp);
     // The block heights, as a plain list. Still needed even though the rows
     // now carry their own height: a drag measures its travel against the
     // *stack* ([layerDragTarget]), a drop reads a slot out of it

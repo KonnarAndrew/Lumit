@@ -86,7 +86,9 @@ Rules:
 Per `MediaRef` in [03-DATA-MODEL.md](03-DATA-MODEL.md) §3, a saved reference carries a
 **project-relative path** (rebased against the project's folder on every save; forward
 slashes, so a save from any OS resolves on any other) and a **fingerprint**
-(size + mtime + head/tail hash, stamped at save time). The file's absolute location is
+(size + mtime + head/tail hash, stamped at save time). Media on another Windows drive
+has no relative path, so the path field holds its whole path instead, or it would be
+missing on every open. Otherwise the file's absolute location is
 **session-state only**: it is held in memory while the app runs and is never
 serialized — an absolute path embeds the local username, which this section has always
 promised the file never contains. Older projects may still carry one; it is
