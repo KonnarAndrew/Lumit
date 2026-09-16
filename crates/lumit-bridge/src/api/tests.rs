@@ -8176,7 +8176,7 @@ fn detecting_beats_in_a_silent_composition_says_so() {
     let comp = CompositionReference::new(project.id, layer.comp_id());
 
     assert!(matches!(
-        comp.detect_beats(crate::api::beats::BridgeBeatOptions::standard()),
+        comp.detect_beats(crate::api::beats::BridgeBeatOptions::standard(), None),
         Err(BridgeError::NoAudio)
     ));
 }
@@ -8234,13 +8234,13 @@ fn a_layer_named_as_the_beat_source_is_heard_through_a_solo() {
 
     assert!(
         matches!(
-            comp.detect_beats(listening_to(None)),
+            comp.detect_beats(listening_to(None), None),
             Err(BridgeError::NoAudio)
         ),
         "the comp mix hears only what is audible, and the solo silenced it"
     );
     assert!(
-        comp.detect_beats(listening_to(Some(&music_row)))
+        comp.detect_beats(listening_to(Some(&music_row)), None)
             .expect("the named row is heard")
             .placed
             > 0,
@@ -8252,7 +8252,7 @@ fn a_layer_named_as_the_beat_source_is_heard_through_a_solo() {
         .set_switch(BridgeLayerSwitch::Audible, false)
         .expect("muted");
     assert!(
-        comp.detect_beats(listening_to(Some(&music_row)))
+        comp.detect_beats(listening_to(Some(&music_row)), None)
             .expect("still heard")
             .placed
             > 0,
@@ -8261,9 +8261,60 @@ fn a_layer_named_as_the_beat_source_is_heard_through_a_solo() {
 
     // A row that makes no sound at all still says so, named or not.
     assert!(matches!(
-        comp.detect_beats(listening_to(Some(&solid))),
+        comp.detect_beats(listening_to(Some(&solid)), None),
         Err(BridgeError::NoAudio)
     ));
+}
+
+/// **A detection says how far it has got.** The card over the shell swept, and
+/// a sweep claims nothing on a run that takes seconds. The engine now reports
+/// the share of the work behind it as it goes, and its last word is one: the
+/// markers are in by then, and a bar left short would read as a run that gave
+/// up.
+#[test]
+fn a_detection_reports_how_far_it_has_got() {
+    use crate::api::beats::BridgeBeatOptions;
+
+    let dir = tempfile::tempdir().expect("temp dir");
+    let clicks = dir.path().join("clicks.wav");
+    std::fs::write(&clicks, click_wav()).expect("wrote the fixture");
+
+    let project = LumitBridgeState::new_project(None).expect("project");
+    let comp = add_comp(&project, "Cut");
+    let footage = project
+        .import_footage(clicks.to_string_lossy().into_owned())
+        .expect("imported");
+    comp.add_footage_layer(&footage, false, None)
+        .expect("placed");
+    let music_row = comp.get_layers().expect("layers").remove(0);
+    if !music_row.has_audio().expect("asked") {
+        // No decoder in this build: nothing to hear, so nothing to report on.
+        return;
+    }
+
+    let mut seen: Vec<f64> = Vec::new();
+    comp.detect_beats_reporting(BridgeBeatOptions::standard(), &mut |fraction| {
+        seen.push(fraction)
+    })
+    .expect("detected");
+
+    assert!(
+        seen.len() >= 2,
+        "the bar moves during the run, not only at the end: {seen:?}"
+    );
+    assert!(
+        seen.iter().all(|f| (0.0..=1.0).contains(f)),
+        "every report is a share of the whole: {seen:?}"
+    );
+    assert!(
+        seen.windows(2).all(|pair| pair[1] >= pair[0]),
+        "the fill never goes backwards: {seen:?}"
+    );
+    assert_eq!(
+        seen.last().copied(),
+        Some(1.0),
+        "the markers are in, so the bar is full"
+    );
 }
 
 /// Clearing keeps the markers a person made. Re-running detection at a

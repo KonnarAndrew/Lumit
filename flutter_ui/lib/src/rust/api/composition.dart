@@ -789,9 +789,15 @@ class CompositionReference {
   /// as such rather than as a failure. Seconds-long on a long comp, which is
   /// why the analysis itself happens on the beat worker ([`crate::beats`])
   /// and this call waits for it.
-  Future<BridgeBeatsResult> detectBeats({required BridgeBeatOptions options}) =>
+  ///
+  /// `on_progress_stream` is how the card stops sweeping: the run says how
+  /// far it has got as it goes. Optional, because nothing about a detection
+  /// depends on somebody watching it.
+  Future<BridgeBeatsResult> detectBeats(
+          {required BridgeBeatOptions options,
+          RustStreamSink<double>? onProgressStream}) =>
       BridgeLib.instance.api.crateApiCompositionCompositionReferenceDetectBeats(
-          that: this, options: options);
+          that: this, options: options, onProgressStream: onProgressStream);
 
   /// The document's revision number: bumped once per committed change, undo,
   /// redo or recovery. The Dart read model compares it per rebuild — one

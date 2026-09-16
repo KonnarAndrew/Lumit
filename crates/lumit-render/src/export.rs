@@ -2265,12 +2265,31 @@ pub fn mixdown(jobs: &[AudioJob], rate: u32, duration_s: f64) -> Vec<f32> {
 /// detection, whose onsets are relative, and which must not lose its beats
 /// because somebody pulled the master down.
 pub fn mixdown_at(jobs: &[AudioJob], rate: u32, duration_s: f64, master_gain: f32) -> Vec<f32> {
+    mixdown_counting(jobs, rate, duration_s, master_gain, &mut |_| {})
+}
+
+/// As [`mixdown_at`], counting the sources off as each one is decoded.
+///
+/// Decoding is where a mixdown spends its seconds: one whole file per audible
+/// source. `on_decoded` is handed how many of `jobs` are done, which is the
+/// only honest division of the work there is to report, and it is called for a
+/// source that would not decode as well as for one that did.
+pub fn mixdown_counting(
+    jobs: &[AudioJob],
+    rate: u32,
+    duration_s: f64,
+    master_gain: f32,
+    on_decoded: &mut dyn FnMut(usize),
+) -> Vec<f32> {
     let decoded: Vec<(lumit_media::AudioBuffer, &AudioJob)> = jobs
         .iter()
-        .filter_map(|job| {
-            lumit_media::audio::decode_all(&job.path, rate)
+        .enumerate()
+        .filter_map(|(index, job)| {
+            let one = lumit_media::audio::decode_all(&job.path, rate)
                 .ok()
-                .map(|buf| (buf, job))
+                .map(|buf| (buf, job));
+            on_decoded(index + 1);
+            one
         })
         .collect();
     let borrowed: Vec<(&lumit_media::AudioBuffer, &AudioJob)> =
@@ -3489,6 +3508,35 @@ mod tests {
         let mix = mixdown(&[], 48_000, 2.0);
         assert_eq!(mix.len(), 96_000 * 2);
         assert!(mix.iter().all(|s| *s == 0.0));
+    }
+
+    /// **Every source is counted off, decoded or not.** Beat detection draws
+    /// its progress bar from this count, and a file the decoder would not read
+    /// still cost the time it took to try: a count that skipped it would leave
+    /// the bar short of the end for the rest of the run.
+    #[test]
+    fn a_counting_mixdown_counts_every_source() {
+        let job = |name: &str| AudioJob {
+            item: uuid::Uuid::nil(),
+            layer: uuid::Uuid::nil(),
+            clip: None,
+            path: PathBuf::from(name),
+            in_s: 0.0,
+            out_s: 1.0,
+            offset_s: 0.0,
+            volume: lumit_core::anim::Property::zero(),
+            pan: lumit_core::anim::Property::zero(),
+            carriers: Vec::new(),
+            fade: None,
+            driven: None,
+            chain: None,
+            clip_chain: None,
+        };
+        let jobs = [job("nothing-here.wav"), job("nor-here.wav")];
+        let mut counted: Vec<usize> = Vec::new();
+        let mix = mixdown_counting(&jobs, 48_000, 1.0, 1.0, &mut |done| counted.push(done));
+        assert_eq!(counted, vec![1, 2], "one report per source, in order");
+        assert_eq!(mix.len(), 48_000 * 2, "and the mix itself is unchanged");
     }
 
     /// The capability table is the one place a format's limits are written

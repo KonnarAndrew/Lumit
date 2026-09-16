@@ -735,6 +735,34 @@ void main() {
       expect(p.uiState.selectedComp!.getMarkers(), isEmpty);
     });
 
+    /// **The menu path shows the card the other two do.** Detection takes
+    /// seconds and the Audio panel and the Timeline both cover the shell while
+    /// it runs; the menu ran it in silence, so the interface looked exactly as
+    /// it had before anything was pressed. One runner serves all three now, and
+    /// its bar is determinate from the first frame because the engine reports
+    /// how far the run has got.
+    testWidgets('Composition ▸ Detect beats puts the shared card up',
+        (tester) async {
+      final p = await mount(tester);
+      await makeComp(tester);
+      expect(p.state.busy.value, isNull, reason: 'nothing is running yet');
+
+      await choose(tester, 'Composition', 'Detect beats');
+
+      expect(p.state.busy.value, 'Detecting beats',
+          reason: 'the line the panel and the Timeline put up');
+      expect(p.state.busyProgress.value, 0,
+          reason: 'a filling bar from its first frame, not a sweep that turns '
+              'into one a moment later');
+
+      // The comp has nothing to hear, so this run ends in a refusal — and the
+      // card comes down on that as surely as on a success.
+      await settleFrb(tester, until: () => p.state.busy.value == null);
+      expect(p.state.busy.value, isNull);
+      expect(p.state.busyProgress.value, isNull,
+          reason: 'and the bar goes with it');
+    });
+
     /// The palette's four categories (docs/07 §12): commands, and now every
     /// effect, comp and panel under its own badge; Enter on each does its
     /// kind of thing. The taught shortcut shows only where a real binding

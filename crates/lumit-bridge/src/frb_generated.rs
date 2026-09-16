@@ -3876,12 +3876,16 @@ fn wire__crate__api__composition__composition_reference_detect_beats_impl(
             let api_that =
                 <crate::api::composition::CompositionReference>::sse_decode(&mut deserializer);
             let api_options = <crate::api::beats::BridgeBeatOptions>::sse_decode(&mut deserializer);
+            let api_on_progress_stream = <Option<
+                StreamSink<f64, flutter_rust_bridge::for_generated::SseCodec>,
+            >>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, BridgeError>((move || {
                     let output_ok = crate::api::composition::CompositionReference::detect_beats(
                         &api_that,
                         api_options,
+                        api_on_progress_stream,
                     )?;
                     Ok(output_ok)
                 })())
@@ -16096,6 +16100,14 @@ impl SseDecode
     }
 }
 
+impl SseDecode for StreamSink<f64, flutter_rust_bridge::for_generated::SseCodec> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <String>::sse_decode(deserializer);
+        return StreamSink::deserialize(inner);
+    }
+}
+
 impl SseDecode
     for StreamSink<crate::api::state::OpenProgress, flutter_rust_bridge::for_generated::SseCodec>
 {
@@ -21385,6 +21397,20 @@ impl SseDecode for crate::api::state::OpenProgress {
             phase: var_phase,
             fraction: var_fraction,
         };
+    }
+}
+
+impl SseDecode for Option<StreamSink<f64, flutter_rust_bridge::for_generated::SseCodec>> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<StreamSink<
+                f64,
+                flutter_rust_bridge::for_generated::SseCodec,
+            >>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
     }
 }
 
@@ -28269,6 +28295,13 @@ impl SseEncode
     }
 }
 
+impl SseEncode for StreamSink<f64, flutter_rust_bridge::for_generated::SseCodec> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        unimplemented!("")
+    }
+}
+
 impl SseEncode
     for StreamSink<crate::api::state::OpenProgress, flutter_rust_bridge::for_generated::SseCodec>
 {
@@ -32257,6 +32290,18 @@ impl SseEncode for crate::api::state::OpenProgress {
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <crate::api::state::OpenPhase>::sse_encode(self.phase, serializer);
         <f64>::sse_encode(self.fraction, serializer);
+    }
+}
+
+impl SseEncode for Option<StreamSink<f64, flutter_rust_bridge::for_generated::SseCodec>> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <StreamSink<f64, flutter_rust_bridge::for_generated::SseCodec>>::sse_encode(
+                value, serializer,
+            );
+        }
     }
 }
 

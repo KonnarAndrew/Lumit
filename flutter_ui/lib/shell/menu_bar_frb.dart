@@ -1041,18 +1041,19 @@ List<MenuSection> lumitMenus(
                 onComp((c) => _markerAtPlayhead(ui, c)),
                 action: 'marker.add'),
             // Beat detection reads the whole comp's audio and can take seconds, so
-            // it runs off-thread; a comp with nothing sounding in it refuses, and
+            // it runs off-thread behind the same card the Audio panel and the
+            // Timeline put up; a comp with nothing sounding in it refuses, and
             // says so on the status line rather than by leaving the Timeline
             // exactly as it was.
             MenuEntry(
                 l10n.menuDetectBeats,
-                onComp((c) => c
-                        .detectBeats(options: BridgeBeatOptions.standard())
-                        .then((found) {
-                      app.postNotice(found.placed == 0
-                          ? l10n.beatsNoneFound
-                          : beatsFoundNotice(found));
-                    }, onError: (_) => app.postNotice(l10n.beatsNoSound)))),
+                onComp((c) => runBeatDetection(
+                    app: app,
+                    comp: c,
+                    options: BridgeBeatOptions.standard(),
+                    // The markers land after the menu's own redraw, so the
+                    // run asks for another when they do.
+                    onFound: (_) => app.notifyDocumentChanged()))),
             MenuEntry(
                 l10n.menuClearBeatMarkers, onComp((c) => c.clearBeatMarkers())),
           ]
