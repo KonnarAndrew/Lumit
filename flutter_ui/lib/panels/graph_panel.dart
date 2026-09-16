@@ -35,7 +35,7 @@ import 'dart:ui' show PointMode;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart'
-    show HardwareKeyboard, KeyDownEvent, LogicalKeyboardKey;
+    show HardwareKeyboard, KeyDownEvent, KeyEvent, LogicalKeyboardKey;
 import 'package:flutter/widgets.dart';
 import 'package:lumit_flutter/main.dart';
 import 'package:lumit_flutter/src/rust/api/composition.dart';
@@ -54,7 +54,9 @@ import '../l10n/engine_labels.dart';
 import '../l10n/strings.dart';
 import '../shell/fx_console_frb.dart';
 import '../state/dock.dart';
+import '../state/drag_payloads.dart';
 import '../state/file_dialogs.dart';
+import '../state/settings.dart' show InterfaceSettings;
 import '../theme/theme.dart';
 import '../widgets/controls.dart';
 import '../widgets/marquee.dart';
@@ -107,6 +109,23 @@ const double graphEnableSize = graphBadgeSize * fxEnableMarkScale;
 /// (the default is a default, not a law).
 const double graphTwirlSize = 12;
 
+/// A node graph box twirled open draws a control on every parameter row, so
+/// it is wider than a shut one: the stopwatch, the name and the control column
+/// the Node panel gives a row, inside the row inset on both sides.
+const double graphNodeOpenWidth = 300;
+
+/// A parameter row with a control in it: the 20px well with 2px of air either
+/// side, on the four-pixel module. A socket-only row keeps [graphPortRowHeight].
+const double graphControlRowHeight = 24;
+
+/// The control column on an open box's row. Wide enough for every control the
+/// row widget draws, the Range sliders setting's well and track included.
+const double graphControlColumn = 150;
+
+/// What a row keeps clear of the card's edge on either side, where the socket
+/// sits.
+const double graphRowInset = 12;
+
 /// The dot grid's pitch on the canvas ground.
 const double graphDotGrid = 20;
 
@@ -158,7 +177,7 @@ const String graphGroupExtension = 'lumgrp';
 /// below it. The drawing's own spacing — a node's width plus 88 of air.
 const double _autoX = 26;
 const double _autoY = 44;
-const double _autoStepX = graphNodeWidth + 88;
+const double _autoAir = 88;
 const double _autoDriverY = 222;
 const double _autoDriverStepY = 140;
 
@@ -229,6 +248,32 @@ String graphNodeKey(BridgeNodeRef node) => switch (node) {
       BridgeNodeRef_Effect(:final field0) => 'effect:$field0',
       BridgeNodeRef_Driver(:final field0) => 'driver:$field0',
     };
+
+/// Tab, or Shift+A as Blender has it: the keys that open the console over a
+/// focused canvas, each only while Settings leaves it on.
+bool graphAddKey(KeyEvent event, InterfaceSettings settings) {
+  final keys = HardwareKeyboard.instance;
+  if (keys.isControlPressed || keys.isAltPressed || keys.isMetaPressed) {
+    return false;
+  }
+  return switch (event.logicalKey) {
+    LogicalKeyboardKey.tab =>
+      !keys.isShiftPressed && settings.tabOpensNodeSearch,
+    LogicalKeyboardKey.keyA =>
+      keys.isShiftPressed && settings.shiftAOpensNodeSearch,
+    _ => false,
+  };
+}
+
+/// Where the pointer is inside the box [key] names, in that box's own pixels,
+/// or null when it is somewhere else.
+Offset? graphPointerIn(GlobalKey key) {
+  final pointer = lastKnownPointerPosition;
+  final box = key.currentContext?.findRenderObject();
+  if (pointer == null || box is! RenderBox || !box.attached) return null;
+  final local = box.globalToLocal(pointer);
+  return (Offset.zero & box.size).contains(local) ? local : null;
+}
 
 /// What a parameter row needs to know about the wire feeding it: the
 /// driver's name, the type the wire carries, and whether the source is a box
@@ -336,28 +381,37 @@ typedef GraphCard = ({
   List<BridgePort> outputs,
 });
 
+/// One row of a box: the input socket on its left edge, the output socket on
+/// its right, and on an open node graph box the parameter whose control fills
+/// it. [top] is measured from under the header.
+typedef GraphRow = ({
+  BridgePort? input,
+  BridgePort? output,
+  String? param,
+  double top,
+  double height,
+});
+
 /// One box, laid out: where it sits and which sockets it shows.
 class GraphBox {
   final GraphCard card;
   final Rect rect;
   final List<BridgePort> inputs;
   final List<BridgePort> outputs;
-  const GraphBox(this.card, this.rect, this.inputs, this.outputs);
+  final List<GraphRow> rows;
+  const GraphBox(this.card, this.rect, this.inputs, this.outputs, this.rows);
 
   String get key => card.key;
 
   Offset? socket(String portId, bool isInput) {
-    final list = isInput ? inputs : outputs;
-    final i = list.indexWhere((p) => p.id == portId);
-    if (i < 0) return null;
-    return Offset(
-      isInput ? rect.left : rect.right,
-      rect.top +
-          1 +
-          graphNodeHeaderHeight +
-          i * graphPortRowHeight +
-          graphPortRowHeight / 2,
-    );
+    for (final row in rows) {
+      if ((isInput ? row.input : row.output)?.id != portId) continue;
+      return Offset(
+        isInput ? rect.left : rect.right,
+        rect.top + 1 + graphNodeHeaderHeight + row.top + row.height / 2,
+      );
+    }
+    return null;
   }
 }
 
@@ -366,12 +420,15 @@ class GraphBox {
 ///
 /// A shut box draws the picture's own path and whatever is already wired; open,
 /// it draws every socket it has (§1.4). Exposure grows the box; it is not a
-/// second kind of wiring.
+/// second kind of wiring. [params] are the parameters an open node graph box
+/// gives a control row each, in the order the panel lists them; the layer
+/// canvas passes none and its rows are sockets alone.
 GraphBox graphLayoutBox(
   GraphCard card,
   Offset at, {
   required bool open,
   double width = graphNodeWidth,
+  List<String> params = const [],
 }) {
   List<BridgePort> shown(List<BridgePort> ports) => [
         for (final p in ports)
@@ -379,26 +436,114 @@ GraphBox graphLayoutBox(
       ];
   final inputs = shown(card.inputs);
   final outputs = shown(card.outputs);
-  final rows = math.max(inputs.length, outputs.length);
+  final rows = graphRows(inputs, outputs, params);
+  final height = rows.isEmpty ? 0.0 : rows.last.top + rows.last.height;
   return GraphBox(
     card,
     Rect.fromLTWH(
       at.dx,
       at.dy,
       width + 2,
-      2 + graphNodeHeaderHeight + rows * graphPortRowHeight,
+      2 + graphNodeHeaderHeight + height,
     ),
     inputs,
     outputs,
+    rows,
   );
 }
 
+/// The rows a box draws, top to bottom.
+///
+/// The picture's sockets come first in the order the engine lists them, then
+/// one control row per parameter where the first parameter socket stood, then
+/// whatever sockets follow. An output shares a socket's row where there is one
+/// to share, else a control's, and only a box whose every row already carries
+/// an output grows another.
+List<GraphRow> graphRows(
+  List<BridgePort> inputs,
+  List<BridgePort> outputs,
+  List<String> params,
+) {
+  final byId = {for (final p in inputs) p.id: p};
+  final wanted = params.toSet();
+  final first = inputs.indexWhere((p) => wanted.contains(p.id));
+  final rows = <({BridgePort? input, BridgePort? output, String? param})>[];
+  void controls() => rows.addAll([
+        for (final id in params) (input: byId[id], output: null, param: id),
+      ]);
+  for (var i = 0; i < inputs.length; i++) {
+    if (i == first) controls();
+    if (!wanted.contains(inputs[i].id)) {
+      rows.add((input: inputs[i], output: null, param: null));
+    }
+  }
+  if (first < 0) controls();
+  var at = 0;
+  for (final out in outputs) {
+    while (at < rows.length && rows[at].param != null) {
+      at++;
+    }
+    if (at < rows.length) {
+      rows[at] = (input: rows[at].input, output: out, param: null);
+      at++;
+      continue;
+    }
+    // No socket row left to share with. A box of controls alone, which is
+    // every driver, puts its output on the first row with none yet rather than
+    // on a blank row under everything it draws.
+    final spare = rows.indexWhere((r) => r.output == null);
+    if (spare < 0) {
+      rows.add((input: null, output: out, param: null));
+      at = rows.length;
+    } else {
+      rows[spare] =
+          (input: rows[spare].input, output: out, param: rows[spare].param);
+    }
+  }
+  final laid = <GraphRow>[];
+  var top = 0.0;
+  for (final row in rows) {
+    final height =
+        row.param == null ? graphPortRowHeight : graphControlRowHeight;
+    laid.add((
+      input: row.input,
+      output: row.output,
+      param: row.param,
+      top: top,
+      height: height,
+    ));
+    top += height;
+  }
+  return laid;
+}
+
 /// Where an unplaced box lands: a row marching right, and a second row below
-/// it for the boxes that make values rather than pictures.
-Offset graphAutoPlace(int index, {bool lower = false}) => lower
-    ? Offset(
-        _autoX + index * _autoStepX, _autoDriverY + index * _autoDriverStepY)
-    : Offset(_autoX + index * _autoStepX, _autoY);
+/// it for the boxes that make values rather than pictures. [width] is the
+/// widest box the canvas draws, so the row steps clear of it.
+Offset graphAutoPlace(int index,
+    {bool lower = false, double width = graphNodeWidth}) {
+  final step = width + _autoAir;
+  return lower
+      ? Offset(_autoX + index * step, _autoDriverY + index * _autoDriverStepY)
+      : Offset(_autoX + index * step, _autoY);
+}
+
+/// A spot near [at] with no box already on it, in canvas units.
+///
+/// The console has no pointer to aim by, so it puts every box on the middle of
+/// the view. Without this the second box lands exactly on the first, and
+/// pressing a twirl or grabbing a socket then answers for whichever box is on
+/// top, which reads as the box doing nothing at all.
+Offset graphClearSpot(Offset at, Iterable<Rect> taken) {
+  const step = 28.0;
+  var spot = at;
+  for (var n = 0; n < 40; n++) {
+    final near = taken.any((r) => (r.topLeft - spot).distance < step);
+    if (!near) return spot;
+    spot += const Offset(step, step);
+  }
+  return spot;
+}
 
 /// The rectangle a group's wash covers, in canvas units: its members' own
 /// bounds, plus air all round and a band above for its name.
@@ -816,6 +961,24 @@ class _GraphPanelFrbState extends State<GraphPanelFrb> {
   /// Whether the search console is up, so a second ask cannot stack another.
   bool _searching = false;
 
+  /// A right-click on empty canvas, waiting for its release.
+  bool _menuPress = false;
+
+  /// The boxes as they stand, for a placement that has to miss them.
+  List<GraphBox> _boxesNow() {
+    final graph = _graph;
+    if (graph == null) return const [];
+    return _layoutOf(
+      graph,
+      _positions,
+      graph.wiring.exposed.map(graphNodeKey).toSet(),
+      _layerName,
+    ).boxes;
+  }
+
+  /// The canvas's own box, so a drop and the pointer are measured in it.
+  final GlobalKey _canvasKey = GlobalKey();
+
   final FocusNode _canvasFocus = FocusNode(debugLabel: 'graph canvas');
 
   @override
@@ -891,7 +1054,10 @@ class _GraphPanelFrbState extends State<GraphPanelFrb> {
         _searching) {
       return _priorConsoleClaim?.call() ?? false;
     }
-    _openSearch(_toCanvas(Offset(_viewport.width / 2, _viewport.height / 2)));
+    _openSearch(graphClearSpot(
+      _toCanvas(Offset(_viewport.width / 2, _viewport.height / 2)),
+      [for (final b in _boxesNow()) b.rect],
+    ));
     return true;
   }
 
@@ -1543,7 +1709,7 @@ class _GraphPanelFrbState extends State<GraphPanelFrb> {
   /// the same popover the shell opens, with a foot line
   /// saying what a row will do. One search surface, two doors: what the
   /// canvas contributes is the list, the spot the box lands on, and the
-  /// sentence.
+  /// sentence. Tab, Shift+A and a right-click are the Ctrl+Space door.
   Future<void> _openSearch(Offset at, {GraphSocket? wire}) async {
     if (_searching) return;
     setState(() => _searching = true);
@@ -1585,7 +1751,7 @@ class _GraphPanelFrbState extends State<GraphPanelFrb> {
                     label: engineLabel(effect.label),
                     kind: FxConsoleKind.effect,
                     group: engineLabel(effect.categoryLabel),
-                    run: () => _addEffect(effect),
+                    run: () => _addEffect(effect.name),
                   ),
             // The saved groups, beside the drivers they are made of.
             // Only with no wire in hand: a group is a rig, not a socket, so
@@ -1610,16 +1776,38 @@ class _GraphPanelFrbState extends State<GraphPanelFrb> {
   /// *is* the list, so the new box appears at the chain's end with the
   /// picture's wires already on it, and the op is the one the Effect menu
   /// commits.
-  void _addEffect(BridgeEffectInfo info) {
+  void _addEffect(String name) {
     final layer = _layer;
     if (layer == null) return;
     try {
-      layer.addEffect(name: info.name);
+      layer.addEffect(name: name);
     } catch (_) {
       return;
     }
     _ui?.model.refresh();
     _reload();
+  }
+
+  /// An effect dragged in from Effects & presets goes where the console puts
+  /// it: a driver lands where it was let go, anything else joins the stack.
+  void _dropped(EffectDragData data, Offset global) {
+    final box = _canvasKey.currentContext?.findRenderObject();
+    if (box is! RenderBox || _graph == null) return;
+    final driver = (widget.driversLister ?? listDrivers)()
+        .where((d) => d.name == data.name)
+        .firstOrNull;
+    if (driver != null) {
+      _addDriver(driver, _toCanvas(box.globalToLocal(global)), null);
+    } else {
+      _addEffect(data.name);
+    }
+  }
+
+  /// Where the pointer is on this canvas, in canvas units, or null when it is
+  /// somewhere else.
+  Offset? get _pointerOnCanvas {
+    final local = graphPointerIn(_canvasKey);
+    return local == null ? null : _toCanvas(local);
   }
 
   // --- Named groups -------------------------------------------------------
@@ -1847,6 +2035,7 @@ class _GraphPanelFrbState extends State<GraphPanelFrb> {
 
   void _down(PointerDownEvent event, GraphLayout layout) {
     _canvasFocus.requestFocus();
+    _menuPress = false;
     if (_claimed) {
       _claimed = false;
       return;
@@ -1979,6 +2168,12 @@ class _GraphPanelFrbState extends State<GraphPanelFrb> {
     // an additive one keeps what is picked and adds the catch to it.
     if (event.buttons == kMiddleMouseButton) {
       setState(() => _panFrom = _pan - event.localPosition);
+      return;
+    }
+    // The right button opens the console on release.
+    if (event.buttons == kSecondaryMouseButton &&
+        _ui!.workspace.interface.rightClickOpensNodeSearch) {
+      _menuPress = true;
       return;
     }
     final keys = HardwareKeyboard.instance;
@@ -2131,6 +2326,12 @@ class _GraphPanelFrbState extends State<GraphPanelFrb> {
         }
       }
       if (moved && _graph != null) _commit(_wiringNow());
+      return;
+    }
+
+    if (_menuPress) {
+      _menuPress = false;
+      if (!moved && _graph != null) _openSearch(at);
       return;
     }
 
@@ -2337,11 +2538,23 @@ class _GraphPanelFrbState extends State<GraphPanelFrb> {
       focusNode: _canvasFocus,
       onKeyEvent: (node, event) {
         if (event is! KeyDownEvent) return KeyEventResult.ignored;
-        // No Tab door: Ctrl+Space is the console's one key, answered
-        // through [_consoleClaim] so it works with focus anywhere in the app.
+        // Ctrl+Space works with focus anywhere, through [_consoleClaim]. Tab
+        // and Shift+A only while the canvas has focus.
         if (event.logicalKey == LogicalKeyboardKey.delete ||
             event.logicalKey == LogicalKeyboardKey.backspace) {
           _deleteSelected();
+          return KeyEventResult.handled;
+        }
+        // Only the canvas itself: a rename field inside it types these.
+        if (node.hasPrimaryFocus &&
+            graphAddKey(event, _ui!.workspace.interface)) {
+          if (_graph != null) {
+            _openSearch(_pointerOnCanvas ??
+                graphClearSpot(
+                  _toCanvas(Offset(_viewport.width / 2, _viewport.height / 2)),
+                  [for (final b in _boxesNow()) b.rect],
+                ));
+          }
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
@@ -2351,6 +2564,7 @@ class _GraphPanelFrbState extends State<GraphPanelFrb> {
       // without a gesture detector per socket — so a popover drawn inside it
       // would have its presses read as presses on the ground behind it.
       child: Stack(
+        key: _canvasKey,
         children: [
           Positioned.fill(
             child: Listener(
@@ -2461,6 +2675,22 @@ class _GraphPanelFrbState extends State<GraphPanelFrb> {
               ),
             ),
           ),
+          // An effect dragged in from Effects & presets. Translucent, so every
+          // other press still reaches the canvas under it.
+          Positioned.fill(
+            child: DragTarget<EffectDragData>(
+              onAcceptWithDetails: (details) =>
+                  _dropped(details.data, details.offset),
+              builder: (context, candidate, _) => candidate.isEmpty
+                  ? const SizedBox.expand()
+                  : IgnorePointer(
+                      child: Container(
+                        decoration: BoxDecoration(
+                            border: Border.all(color: t.accent, width: 2)),
+                      ),
+                    ),
+            ),
+          ),
         ],
       ),
     );
@@ -2550,6 +2780,10 @@ class GraphNodeCard extends StatelessWidget {
   final ValueChanged<String> onRenamed;
   final VoidCallback onRenameCancelled;
 
+  /// The control a parameter row draws, by parameter id: the Node panel's
+  /// own row, on the box. Null on a canvas whose rows are sockets alone.
+  final Widget Function(String param)? paramRow;
+
   const GraphNodeCard({
     super.key,
     required this.box,
@@ -2562,6 +2796,7 @@ class GraphNodeCard extends StatelessWidget {
     required this.onStartRename,
     required this.onRenamed,
     required this.onRenameCancelled,
+    this.paramRow,
   });
 
   GraphCard get _card => box.card;
@@ -2570,7 +2805,6 @@ class GraphNodeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = ThemeScope.of(context).theme;
-    final rows = math.max(box.inputs.length, box.outputs.length);
     return SizedBox(
       key: ValueKey<String>('graph-node-$_key'),
       width: box.rect.width,
@@ -2594,13 +2828,13 @@ class GraphNodeCard extends StatelessWidget {
             width: box.rect.width - 2,
             child: _header(t),
           ),
-          for (var i = 0; i < rows; i++)
+          for (final row in box.rows)
             Positioned(
               left: 1,
-              top: 1 + graphNodeHeaderHeight + i * graphPortRowHeight,
+              top: 1 + graphNodeHeaderHeight + row.top,
               width: box.rect.width - 2,
-              height: graphPortRowHeight,
-              child: _row(t, i),
+              height: row.height,
+              child: _row(t, row),
             ),
         ],
       ),
@@ -2771,16 +3005,28 @@ class GraphNodeCard extends StatelessWidget {
         ),
       ));
 
-  Widget _row(LumitTheme t, int i) {
-    final input = i < box.inputs.length ? box.inputs[i] : null;
-    final output = i < box.outputs.length ? box.outputs[i] : null;
+  /// One row: its sockets, and either the control that sets the parameter or
+  /// the port's name. **A wired row draws the name alone**, because the wire
+  /// is the value and a control under it would be a lie about what is in
+  /// charge, the reading the Node panel's driven rows take.
+  Widget _row(LumitTheme t, GraphRow row) {
+    final input = row.input;
+    final output = row.output;
+    final control = row.param != null && !(input?.wired ?? false)
+        ? paramRow?.call(row.param!)
+        : null;
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        if (input != null)
+        if (control != null)
+          Positioned.fill(
+            left: graphRowInset,
+            child: _claim(control),
+          )
+        else if (input != null)
           Positioned.fill(
             child: Padding(
-              padding: const EdgeInsets.only(left: 12),
+              padding: const EdgeInsets.only(left: graphRowInset),
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(engineLabel(input.label),
@@ -2792,10 +3038,12 @@ class GraphNodeCard extends StatelessWidget {
               ),
             ),
           ),
-        if (output != null)
+        // Its name, unless a control has the row: the words would sit on top of
+        // it, and the socket alone says what the row gives out.
+        if (output != null && control == null)
           Positioned.fill(
             child: Padding(
-              padding: const EdgeInsets.only(right: 12),
+              padding: const EdgeInsets.only(right: graphRowInset),
               child: Align(
                 alignment: Alignment.centerRight,
                 child: Text(engineLabel(output.label),
@@ -2810,13 +3058,13 @@ class GraphNodeCard extends StatelessWidget {
         if (input != null)
           Positioned(
             left: -graphSocketSize / 2 - 1,
-            top: (graphPortRowHeight - graphSocketSize) / 2,
+            top: (row.height - graphSocketSize) / 2,
             child: _socket(t, input),
           ),
         if (output != null)
           Positioned(
             right: -graphSocketSize / 2 - 1,
-            top: (graphPortRowHeight - graphSocketSize) / 2,
+            top: (row.height - graphSocketSize) / 2,
             child: _socket(t, output),
           ),
       ],
@@ -3123,15 +3371,29 @@ class _NodeNameFieldState extends State<_NodeNameField> {
       extentOffset: widget.initial.length,
     );
 
+  // Autofocus does nothing here, since the canvas took focus on the press
+  // that opened the rename, so the field asks for it outright.
+  final FocusNode _focus = FocusNode(debugLabel: 'box rename');
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focus.requestFocus();
+    });
+  }
+
   @override
   void dispose() {
     _controller.dispose();
+    _focus.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) => HouseTextField(
         controller: _controller,
+        focusNode: _focus,
         width: double.infinity,
         autofocus: true,
         submitOnLostFocus: true,

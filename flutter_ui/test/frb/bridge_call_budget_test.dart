@@ -27,6 +27,7 @@ import 'package:lumit_flutter/panels/project_panel_frb.dart';
 import 'package:lumit_flutter/panels/timeline_extras_frb.dart';
 import 'package:lumit_flutter/panels/timeline_panel_frb.dart';
 import 'package:lumit_flutter/panels/viewer_panel_frb.dart';
+import 'package:lumit_flutter/src/rust/api/comp_graph.dart';
 import 'package:lumit_flutter/src/rust/api/effect.dart';
 import 'package:lumit_flutter/src/rust/api/layer.dart';
 import 'package:lumit_flutter/src/rust/api/project_item.dart';
@@ -710,11 +711,21 @@ void main() {
       final p = freshProject();
       final graph = p.state.project!.newNodeGraph(name: 'Graph');
       // Committed, so the hover crosses a canvas with a real box on it: a new
-      // instance on its own is never in the document.
+      // instance on its own is never in the document. Twirled open, so the
+      // box draws its rows and their controls, which must cost nothing too.
       final made = graph.newGraphInstance(name: 'blur');
+      final w = graph.getNodeGraph().wiring;
       graph.setNodeGraph(
         instances: [...graph.getNodeGraphInstances(), made],
-        wiring: graph.getNodeGraph().wiring,
+        wiring: BridgeCompWiring(
+          reads: w.reads,
+          inputs: w.inputs,
+          output: w.output,
+          edges: w.edges,
+          layout: w.layout,
+          exposed: [made.id()],
+          groups: w.groups,
+        ),
       );
       p.uiState.setSelectedComp(graph);
       p.uiState.model.refresh();

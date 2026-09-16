@@ -302,18 +302,33 @@ mod tests {
         let project = saved_project(&dir);
         let autosaves = dir.join("autosaves");
 
+        // Off first, and long enough for a round to go by, so the count the
+        // timer keeps is back at nothing however the tests before this one
+        // left it. Every wait below is a whole number of ticks, since that is
+        // the grain the thread wakes on.
+        schedule_every(Duration::ZERO, 3);
+        std::thread::sleep(MAX_TICK * 2);
+
         // The thread reads the schedule every round, so this is the whole
-        // clock: a fifth of a second stands in for five minutes.
-        schedule_every(Duration::from_millis(200), 3);
+        // clock: five seconds stand in for five minutes.
+        schedule_every(Duration::from_secs(5), 3);
         project
             .new_composition("Waiting".into(), None)
             .expect("comp");
-        std::thread::sleep(Duration::from_millis(60));
+        std::thread::sleep(MAX_TICK * 2);
         assert!(
             !autosaves.exists(),
             "nothing is written before the interval is up"
         );
-        std::thread::sleep(Duration::from_millis(500));
+
+        // Due now. Waited for rather than slept through: the thread is asleep
+        // for a tick at a time, so the first copy after a change of interval
+        // lands a tick or two later on a loaded machine.
+        schedule_every(Duration::from_millis(200), 3);
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        while !autosaves.is_dir() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
         assert!(autosaves.is_dir(), "and it is written once it is");
 
         // Off: no further copy, however much the document moves. The count is
@@ -321,12 +336,12 @@ mod tests {
         // the setting changed is behind us and what follows is the answer to
         // "off", not to the last tick of "on".
         schedule_every(Duration::ZERO, 3);
-        std::thread::sleep(Duration::from_millis(300));
+        std::thread::sleep(MAX_TICK * 2);
         let before = std::fs::read_dir(&autosaves).expect("the folder").count();
         project
             .new_composition("Ignored".into(), None)
             .expect("comp");
-        std::thread::sleep(Duration::from_millis(400));
+        std::thread::sleep(MAX_TICK * 2);
         assert_eq!(
             std::fs::read_dir(&autosaves).expect("the folder").count(),
             before,
