@@ -3565,6 +3565,22 @@ void main() {
       expect(find.byKey(const ValueKey('viewer-missing')), findsOneWidget);
       expect(find.textContaining('missing file'), findsOneWidget);
     });
+
+    testWidgets('relinking the missing footage clears the badge',
+        (tester) async {
+      final p = withLayer();
+      final gone = p.state.project!.importFootage(path: 'C:/nowhere/gone.mp4');
+      p.comp.addFootageLayer(footage: gone, asSequence: false);
+      await mount(tester, p);
+      final badge = find.byKey(const ValueKey('viewer-missing'));
+      await settleFrb(tester, until: () => badge.evaluate().isNotEmpty);
+      expect(badge, findsOneWidget);
+
+      // The layers stay the same, only the file behind one of them changes.
+      gone.relink(path: _silentWavFile());
+      await settleFrb(tester, until: () => badge.evaluate().isEmpty);
+      expect(badge, findsNothing);
+    });
     // Without the built library there is nothing to test against; the harness
     // throws with the command to run.
 
@@ -3864,4 +3880,30 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }, skip: !engineAvailable);
+}
+
+/// A tenth of a second of silent 8-bit mono WAV, which the engine probes as
+/// real media.
+String _silentWavFile() {
+  final file = File(
+      '${Directory.systemTemp.createTempSync('lumit-relink').path}/back.wav');
+  final out = BytesBuilder();
+  void u16(int v) => out.add([v & 0xff, v >> 8]);
+  void u32(int v) =>
+      out.add([v & 0xff, v >> 8 & 0xff, v >> 16 & 0xff, v >> 24]);
+  out.add('RIFF'.codeUnits);
+  u32(36 + 800);
+  out.add('WAVEfmt '.codeUnits);
+  u32(16);
+  u16(1); // PCM
+  u16(1); // mono
+  u32(8000);
+  u32(8000);
+  u16(1);
+  u16(8);
+  out.add('data'.codeUnits);
+  u32(800);
+  out.add(List.filled(800, 128));
+  file.writeAsBytesSync(out.takeBytes());
+  return file.path;
 }

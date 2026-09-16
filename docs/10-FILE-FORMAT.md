@@ -86,18 +86,15 @@ Rules:
 Per `MediaRef` in [03-DATA-MODEL.md](03-DATA-MODEL.md) §3, a saved reference carries a
 **project-relative path** (rebased against the project's folder on every save; forward
 slashes, so a save from any OS resolves on any other) and a **fingerprint**
-(size + mtime + head/tail hash, stamped at save time). The file's absolute location is
+(size + mtime + head/tail hash, stamped at save time). Media on another Windows drive
+has no relative path, so the path field holds its whole path instead, or it would be
+missing on every open. Otherwise the file's absolute location is
 **session-state only**: it is held in memory while the app runs and is never
 serialized — an absolute path embeds the local username, which this section has always
 promised the file never contains. Older projects may still carry one; it is
-read and honoured as a fallback, and disappears on their next save. A file with no relative
-path from the project, such as one on another drive, saves as its bare name. Where this
-machine last saw it is kept in the local app data folder instead (`media-places.json`, keyed
-by fingerprint), never in the project, so the project still opens with it on this machine.
-On open:
+read and honoured as a fallback, and disappears on their next save. On open:
 
-1. Try relative path → 2. a legacy file's absolute path, if present, or where this machine
-   last saw the file → 3. fingerprint search
+1. Try relative path → 2. a legacy file's absolute path, if present → 3. fingerprint search
    in user-configured search roots and the project's folder tree → 3b. **by file name**
    under the project's own folder tree, for whatever the first three did not find → 4. mark
    **missing** (placeholder slate, never a blocking error), offer the relink dialogue.

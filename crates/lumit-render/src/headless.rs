@@ -140,8 +140,9 @@ pub struct HeadlessRenderer {
     /// The `ItemInfo` map the renderer reads, rebuilt each call (cheap — it only
     /// reads `probe_cache`) so a missing item's slate matches the current comp.
     items: HashMap<Uuid, ItemInfo>,
-    /// Probe results by footage id, so each file is probed at most once.
-    probe_cache: HashMap<Uuid, Probe>,
+    /// Probe results by footage id, kept beside the path they were read from
+    /// so a relink probes the new file.
+    probe_cache: HashMap<Uuid, (PathBuf, Probe)>,
     /// The same, for each item's **proxy** file — kept beside its path
     /// rather than under the id alone, so attaching a different proxy (or the
     /// one MAKE-PROXY has just written) re-probes instead of answering from a
@@ -2743,10 +2744,19 @@ impl HeadlessRenderer {
             } else {
                 self.proxy_probes.remove(&f.id);
             }
-            let probe = self
-                .probe_cache
-                .entry(f.id)
-                .or_insert_with(|| probe_item(&footage_source(f)));
+            // Checked against the path too, so a relinked item probes its new
+            // file rather than keeping the slate.
+            let path = footage_path(f);
+            match self.probe_cache.get(&f.id) {
+                Some((cached, _)) if *cached == path => {}
+                _ => {
+                    let probe = probe_item(&footage_source(f));
+                    self.probe_cache.insert(f.id, (path, probe));
+                }
+            }
+            let Some((_, probe)) = self.probe_cache.get(&f.id) else {
+                continue;
+            };
             match probe {
                 Probe::Ok { fps, frames, .. } => {
                     self.items.insert(
@@ -2816,13 +2826,14 @@ pub struct AudioJobsBuilder {
 /// process rather than once per [`AudioJobsBuilder`] — see
 /// [`AudioJobsBuilder::item_has_audio`], which is the only reader.
 ///
-/// Keyed by the item rather than by its file, so two projects and two tests are
-/// each their own question and cannot answer for one another. A file that isn't
-/// there is never remembered, so relinking missing media gets its sound back.
+/// Keyed by the item rather than by its file, so two projects and two tests
+/// never answer for one another. A missing file is never stored, so relinking
+/// it is heard.
 ///
 /// ponytail: an item whose file gains or loses its audio stream **in place**
 /// keeps the answer it first gave until Lumit restarts — a re-encode over the
-/// top of a clip already in the project. Clear this on the same signal the
+/// top of a clip already in the project, or a relink from one file that is
+/// there to another. Clear this on the same signal the
 /// decoded-audio cache would need, if overwriting a track under a running Lumit
 /// ever stops adding the mute switch.
 static HAS_AUDIO: LazyLock<Mutex<HashMap<Uuid, bool>>> =
@@ -3416,6 +3427,7 @@ impl AudioJobsBuilder {
                 return has;
             }
         }
+        // A missing file isn't remembered, so a relinked clip is heard.
         if !path.is_file() {
             return false;
         }
@@ -3528,13 +3540,13 @@ fn probe_item(src: &lumit_media::MediaSource) -> Probe {
 /// read exactly what `sync_items` already resolved — no second probe, and no
 /// chance of the two disagreeing about what a file is.
 pub(crate) struct ProbeView<'a>(
-    &'a HashMap<Uuid, Probe>,
+    &'a HashMap<Uuid, (PathBuf, Probe)>,
     &'a HashMap<Uuid, (PathBuf, Probe)>,
 );
 
 impl SourceProbes for ProbeView<'_> {
     fn probe(&self, item: Uuid) -> SourceProbe {
-        seen(self.0.get(&item))
+        seen(self.0.get(&item).map(|(_, p)| p))
     }
 
     fn proxy_probe(&self, item: Uuid) -> SourceProbe {
@@ -4532,7 +4544,8 @@ mod tests {
 
         let audio_id = push_footage_item(&mut doc, "audio.wav");
         push_layer(&mut doc, sized, LayerKind::Footage { item: audio_id });
-        r.probe_cache.insert(audio_id, Probe::NoVideo);
+        r.probe_cache
+            .insert(audio_id, ("audio.wav".into(), Probe::NoVideo));
         let comp = doc.comp(sized).expect("sized comp").clone();
         r.sync_items(&doc, &comp);
         assert!(
@@ -4543,7 +4556,8 @@ mod tests {
         // Contrast: a genuinely missing/unreadable file DOES slate.
         let missing_id = push_footage_item(&mut doc, "gone.mp4");
         push_layer(&mut doc, sized, LayerKind::Footage { item: missing_id });
-        r.probe_cache.insert(missing_id, Probe::Slate);
+        r.probe_cache
+            .insert(missing_id, ("gone.mp4".into(), Probe::Slate));
         let comp = doc.comp(sized).expect("sized comp").clone();
         r.sync_items(&doc, &comp);
         assert_eq!(
@@ -4568,18 +4582,55 @@ mod tests {
         }
         r.probe_cache.insert(
             video_id,
-            Probe::Ok {
-                fps: 25.0,
-                frames: 125,
-                width: 64,
-                height: 64,
-            },
+            (
+                "music-video.mp4".into(),
+                Probe::Ok {
+                    fps: 25.0,
+                    frames: 125,
+                    width: 64,
+                    height: 64,
+                },
+            ),
         );
         let comp = doc.comp(sized).expect("sized comp").clone();
         r.sync_items(&doc, &comp);
         assert!(
             !r.items.contains_key(&video_id),
             "a video placed for its sound alone contributes no picture"
+        );
+    }
+
+    /// Relinking a missing clip should drop its slate in the Viewer, without
+    /// reopening the project.
+    #[test]
+    fn a_relinked_clip_loses_its_slate() {
+        let mut r = match HeadlessRenderer::shared() {
+            Ok(r) => r,
+            Err(_) => {
+                lumit_gpu::no_adapter();
+                return;
+            }
+        };
+        let Some((_fixture_dir, clip)) = footage_fixture() else {
+            eprintln!("skipping: no ffmpeg CLI to write the footage fixture");
+            return;
+        };
+        let mut doc = Document::new();
+        let comp_id = push_comp(&mut doc, "comp", 32, 32);
+        let item = push_footage_item(&mut doc, "gone.mp4");
+        push_layer(&mut doc, comp_id, LayerKind::Footage { item });
+
+        let comp = doc.comp(comp_id).expect("comp").clone();
+        r.sync_items(&doc, &comp);
+        assert!(r.items.get(&item).is_some_and(|i| i.missing.is_some()));
+
+        if let Some(ProjectItem::Footage(f)) = doc.item_mut(item) {
+            f.media.absolute_path = clip.to_string_lossy().into_owned();
+        }
+        r.sync_items(&doc, &comp);
+        assert!(
+            r.items.get(&item).is_some_and(|i| i.missing.is_none()),
+            "the relinked file was never probed"
         );
     }
 
@@ -4730,8 +4781,8 @@ mod tests {
     }
 
     /// The audio-jobs builder needs no GPU: a comp holding a solid (no sound)
-    /// and a footage layer whose file is not on disk yields no jobs, calmly.
-    /// The missing file isn't remembered, so a relink can still find its sound.
+    /// and a footage layer whose file is not on disk yields no jobs, calmly,
+    /// and the missing file is not remembered as silent.
     #[test]
     fn audio_jobs_builder_needs_no_gpu_and_forgets_a_missing_file() {
         let (store, comp_id) = doc_with_solid(LinearColour([1.0, 0.0, 0.0, 1.0]), 8, 8);
@@ -4794,12 +4845,9 @@ mod tests {
         assert_eq!(
             HAS_AUDIO.lock().unwrap().get(&item_id),
             None,
-            "a missing file is not remembered"
+            "a relink would stay silent if the missing file were remembered"
         );
         assert!(builder.audio_jobs(&Arc::new(doc.clone()), &comp).is_empty());
-        assert!(AudioJobsBuilder::new()
-            .audio_jobs(&Arc::new(doc.clone()), &comp)
-            .is_empty());
     }
 
     /// **Sound inside a precomp reaches the comp that holds it.** A song sits

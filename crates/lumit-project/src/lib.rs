@@ -2,7 +2,6 @@
 //! docs/10-FILE-FORMAT.md, Phase 0 scope (no thumbnails yet).
 
 pub mod fixtures;
-pub mod media_places;
 pub mod plugins;
 
 pub use plugins::{plugin_prefs_path, PluginPrefs};
@@ -973,11 +972,10 @@ fn search_by_fingerprint(root: &Path, fp: &Fingerprint) -> Option<PathBuf> {
 
 /// The path of `target` relative to `base` (both taken as-is, no filesystem
 /// access): the shared prefix is stripped and each remaining `base` component
-/// becomes a `..`. None when no relative path exists at all — different
-/// Windows drives — where the caller keeps the bare file name instead (the
-/// footage-beside-the-project convention, and the fingerprint search covers
-/// the rest). Always forward slashes, so a project saved on Windows resolves
-/// on Linux and macOS unchanged.
+/// becomes a `..`. None when no relative path exists at all (different
+/// Windows drives), where a save keeps the whole path instead. Always forward
+/// slashes, so a project saved on Windows resolves on Linux and macOS
+/// unchanged.
 #[must_use]
 pub fn relative_between(base: &Path, target: &Path) -> Option<String> {
     use std::path::Component;
@@ -1054,13 +1052,10 @@ fn rebase_one(media: &mut lumit_core::model::MediaRef, project_dir: &Path) {
     let Some(located) = located else {
         return; // missing: keep the reference untouched for relinking
     };
-    if let Some(rel) = relative_between(project_dir, &located) {
-        media.relative_path = rel;
-    } else if let Some(name) = located.file_name() {
-        // No relative path exists (another drive): the bare name — the
-        // footage-beside-the-project convention — plus the fingerprint.
-        media.relative_path = name.to_string_lossy().into_owned();
-    }
+    // Footage on another drive has no relative path, so it keeps the whole
+    // path, otherwise it goes missing on the next open.
+    media.relative_path = relative_between(project_dir, &located)
+        .unwrap_or_else(|| located.to_string_lossy().into_owned());
     if media.fingerprint.is_none() {
         media.fingerprint = fingerprint_path(&located).ok();
     }
@@ -1536,6 +1531,41 @@ mod tests {
     /// key at all (it would embed the local username — the thing docs/10 §2
     /// promises the file never holds); and a legacy file that DOES carry one
     /// still loads it, so old saves keep their step-2 fallback.
+    #[cfg(windows)]
+    #[test]
+    fn footage_with_no_relative_path_is_found_after_a_save() {
+        // Footage on another drive has no relative path to the project. A
+        // verbatim path stands in for the other drive, as its prefix never
+        // matches the project's.
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = dir.path().join("project");
+        let media_dir = dir.path().join("footage");
+        fs::create_dir_all(&project_dir).unwrap();
+        fs::create_dir_all(&media_dir).unwrap();
+        let file = media_dir.join("clip.bin");
+        fs::write(&file, vec![7u8; 100_000]).unwrap();
+        let elsewhere = file.canonicalize().unwrap();
+        assert!(relative_between(&project_dir, &elsewhere).is_none());
+
+        let mut doc = Document::new();
+        let mut item = footage("clip.bin");
+        item.media.absolute_path = elsewhere.to_string_lossy().into_owned();
+        apply(
+            &mut doc,
+            &Op::AddItem {
+                index: 0,
+                item: Box::new(ProjectItem::Footage(item)),
+            },
+        )
+        .unwrap();
+
+        // Written and read back, which drops the session's absolute path.
+        let json = serde_json::to_string(&rebase_for_save(&doc, &project_dir)).unwrap();
+        let mut reopened: Document = serde_json::from_str(&json).unwrap();
+        let (_, missing) = resolve_all_media(&mut reopened, &project_dir, &[]);
+        assert!(missing.is_empty(), "lost on reopen: {missing:?}");
+    }
+
     #[test]
     fn saved_projects_carry_relative_paths_and_no_absolute_ones() {
         let dir = tempfile::tempdir().unwrap();
