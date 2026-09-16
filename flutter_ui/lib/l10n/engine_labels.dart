@@ -1115,6 +1115,7 @@ Map<String, String> get _table => {
       "Add item": l10n.histAddItem,
       "Delete item": l10n.histDeleteItem,
       "Relink footage": l10n.histRelinkFootage,
+      "Set sequence rate": l10n.histSetSequenceRate,
       "Set proxy": l10n.histSetProxy,
       "Use proxy": l10n.useProxy,
       "Use proxies": l10n.histUseProxies,

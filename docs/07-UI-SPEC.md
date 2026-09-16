@@ -1260,8 +1260,9 @@ numbered ones imports the whole run — named for its span, `frame[0001-0050].pn
 says both that it is a run and where it stops. Picking more of the same run (which is what
 selecting a whole folder does) adds nothing further: the item that is already there is the
 answer. A numbered still with no numbered neighbours stays a single still, and a folder of
-numbered `.mp4`s stays a folder of clips. **Shipped**, apart from the rate control: a
-sequence plays at 25 until §3.2's dialogue exists to change it.
+numbered `.mp4`s stays a folder of clips. The rate the run plays at is the item's own and
+starts at 25; it is corrected from the **Frame rate** field on the item's context menu,
+beside Relink, which writes the exact pair and is one undo step. **Shipped.**
 
 **A node graph is a composition row** ([impl/node-graph-comp.md](impl/node-graph-comp.md)),
 drawn with the nodes glyph and the type word "node graph". **New node graph** is offered on
@@ -1286,6 +1287,8 @@ touching the file:
   carry no rate of their own, so the item's rate is the only rate there is. It defaults to 25
   and is where an imported sequence's speed gets corrected. This is the one part of a
   sequence the project stores; the run's start and length are re-read from the folder.
+  Until this dialogue exists as drawn, the rate is carried by a **Frame rate** field on the
+  item's context menu (§3.1), and that field is replaced when the dialogue lands.
 - **Fields/pulldown**: deliberately out of scope for v1 (gaming footage is progressive);
   the dialogue reserves space for it.
 

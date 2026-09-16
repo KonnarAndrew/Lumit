@@ -453,6 +453,68 @@ fn relinking_a_sequence_by_any_of_its_frames_finds_the_run_and_its_neighbours() 
     );
 }
 
+/// **The rate of an imported run is the user's to correct** (docs/07 §3.1).
+/// Stills carry none of their own, so the item's rate is the only rate there
+/// is: it arrives at 25, takes the exact pair it is given, and one undo puts
+/// the old one back. A file that is not a run has no rate to set, and nor has
+/// nought.
+// Recognising a run is the decoder crate's work: without it the import is one
+// still and there is no rate on it to correct.
+#[cfg(feature = "media")]
+#[test]
+fn an_image_sequence_takes_a_new_rate_and_undo_puts_the_old_one_back() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    for n in 1..=8u32 {
+        std::fs::write(dir.path().join(format!("frame{n:04}.png")), b"f").expect("frame");
+    }
+    std::fs::write(dir.path().join("lone.png"), b"f").expect("still");
+
+    let project = LumitBridgeState::new_project(None).expect("a new project");
+    let run = project
+        .import_footage(
+            dir.path()
+                .join("frame0001.png")
+                .to_string_lossy()
+                .into_owned(),
+        )
+        .expect("the run imports as one item");
+    let rate = |f: &FootageReference| {
+        f.sequence_rate()
+            .expect("readable")
+            .map(|r| (r.fps_num, r.fps_den))
+    };
+    assert_eq!(rate(&run), Some((25, 1)), "what an import starts at");
+
+    run.set_sequence_rate(24000, 1001)
+        .expect("a run takes a rate");
+    assert_eq!(
+        rate(&run),
+        Some((24000, 1001)),
+        "the exact pair crosses, never a rounding of it"
+    );
+
+    project.undo().expect("one gesture, one step");
+    assert_eq!(rate(&run), Some((25, 1)), "undo puts the old rate back");
+
+    assert!(
+        matches!(
+            run.set_sequence_rate(0, 1),
+            Err(BridgeError::InvalidFrameRate)
+        ),
+        "nought is not a rate"
+    );
+    assert_eq!(rate(&run), Some((25, 1)), "and a refusal changes nothing");
+
+    let still = project
+        .import_footage(dir.path().join("lone.png").to_string_lossy().into_owned())
+        .expect("the single still imports");
+    assert_eq!(rate(&still), None, "one file is not a run");
+    assert!(
+        still.set_sequence_rate(30, 1).is_err(),
+        "so there is no rate on it to correct"
+    );
+}
+
 // A relinked run that grew is renamed for its new span in one undo step,
 // and a run the user renamed keeps its name.
 #[cfg(feature = "media")]

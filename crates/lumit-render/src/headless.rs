@@ -142,6 +142,11 @@ pub struct HeadlessRenderer {
     items: HashMap<Uuid, ItemInfo>,
     /// Probe results by footage id, so each file is probed at most once.
     probe_cache: HashMap<Uuid, Probe>,
+    /// What each cached probe was taken from, so an item whose source has moved
+    /// on is asked again. A run of stills read at a new rate is different
+    /// footage — different length, different frame at every moment — and the
+    /// answer kept under its id alone would outlive the question.
+    probe_sources: HashMap<Uuid, lumit_media::MediaSource>,
     /// The same, for each item's **proxy** file — kept beside its path
     /// rather than under the id alone, so attaching a different proxy (or the
     /// one MAKE-PROXY has just written) re-probes instead of answering from a
@@ -713,6 +718,7 @@ impl HeadlessRenderer {
             scope,
             items: HashMap::new(),
             probe_cache: HashMap::new(),
+            probe_sources: HashMap::new(),
             proxy_probes: HashMap::new(),
             audio_jobs: AudioJobsBuilder::new(),
             pool,
@@ -2743,10 +2749,24 @@ impl HeadlessRenderer {
             } else {
                 self.proxy_probes.remove(&f.id);
             }
+            // The original's probe belongs to the source it was taken from,
+            // the way the proxy's belongs to its path just above: the rate a
+            // run of stills is read at is part of what it is, so correcting it
+            // asks the run again rather than handing the decode plan and the
+            // frame key an answer about the old speed.
+            let src = footage_source(f);
+            if self
+                .probe_sources
+                .get(&f.id)
+                .is_some_and(|taken| *taken != src)
+            {
+                self.probe_cache.remove(&f.id);
+            }
+            self.probe_sources.insert(f.id, src.clone());
             let probe = self
                 .probe_cache
                 .entry(f.id)
-                .or_insert_with(|| probe_item(&footage_source(f)));
+                .or_insert_with(|| probe_item(&src));
             match probe {
                 Probe::Ok { fps, frames, .. } => {
                     self.items.insert(
@@ -4613,6 +4633,76 @@ mod tests {
         assert!(
             !r.items.contains_key(&video_id),
             "a video placed for its sound alone contributes no picture"
+        );
+    }
+
+    /// **Correcting a run of stills re-reads the run** (docs/07 §3.1). Stills
+    /// carry no rate, so the item's rate decides which file is showing at every
+    /// moment and how long the run lasts. The probe kept under the item's id
+    /// was taken at the old rate, so it has to go, or the decode plan and the
+    /// frame key go on naming frames at a speed the project no longer says.
+    ///
+    /// No media fixture: the path is not on disk, so the re-probe is a `stat`
+    /// that answers [`Probe::Slate`] — which is the visible proof that the
+    /// stale answer was dropped rather than handed on.
+    #[test]
+    fn a_new_sequence_rate_drops_the_probe_taken_at_the_old_one() {
+        let mut r = match HeadlessRenderer::shared() {
+            Ok(r) => r,
+            Err(_) => {
+                lumit_gpu::no_adapter();
+                return;
+            }
+        };
+        let mut doc = Document::new();
+        let run = push_footage_item(&mut doc, "frame[0001-0050].png");
+        if let Some(ProjectItem::Footage(f)) = doc.item_mut(run) {
+            f.sequence = Some(lumit_core::model::SequenceRef::default());
+        }
+        let comp_id = push_comp(&mut doc, "shot", 32, 32);
+        push_layer(&mut doc, comp_id, LayerKind::Footage { item: run });
+
+        // What a probe of the run at 25 would have found, filed the way
+        // `sync_items` files one.
+        let seed = Probe::Ok {
+            fps: 25.0,
+            frames: 50,
+            width: 32,
+            height: 32,
+        };
+        r.probe_cache.insert(run, seed);
+        r.probe_sources.insert(
+            run,
+            lumit_media::MediaSource {
+                path: PathBuf::from("frame[0001-0050].png"),
+                sequence_fps: Some((25, 1)),
+            },
+        );
+        let comp = doc.comp(comp_id).expect("the comp").clone();
+        r.sync_items(&doc, &comp);
+        assert_eq!(
+            r.items.get(&run).map(|i| i.fps),
+            Some(25.0),
+            "the rate it was probed at still stands while nothing has changed"
+        );
+
+        // The correction the Project panel's menu makes.
+        if let Some(ProjectItem::Footage(f)) = doc.item_mut(run) {
+            f.sequence = Some(lumit_core::model::SequenceRef {
+                frame_rate: FrameRate::new(50, 1).expect("a real rate"),
+                extra: serde_json::Map::new(),
+            });
+        }
+        r.sync_items(&doc, &comp);
+        assert_eq!(
+            r.items.get(&run).map(|i| i.source.sequence_fps),
+            Some(Some((50, 1))),
+            "the decode plan reads the run at the rate the project now says"
+        );
+        assert_eq!(
+            r.items.get(&run).map(|i| i.missing),
+            Some(Some((32, 32))),
+            "and the probe taken at 25 is gone rather than answering for 50"
         );
     }
 

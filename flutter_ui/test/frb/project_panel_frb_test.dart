@@ -31,7 +31,8 @@ import 'package:lumit_flutter/icons/lumit_icon.dart' as glyph;
 import 'package:lumit_flutter/icons/lumit_icons.dart';
 import 'package:lumit_flutter/l10n/strings.dart';
 import 'package:lumit_flutter/theme/theme.dart';
-import 'package:lumit_flutter/widgets/controls.dart' show LumitTooltip;
+import 'package:lumit_flutter/widgets/controls.dart'
+    show HouseTextField, LumitTooltip;
 
 import 'frb_test_support.dart';
 
@@ -309,6 +310,68 @@ void main() {
           find.byKey(const ValueKey('project-search')), 'Scene');
       await tester.pumpAndSettle();
       expect(rowText('Scene'), findsOneWidget);
+    });
+
+    /// **A run of stills takes its speed from the item menu** (docs/07 §3.1).
+    /// Stills carry no rate of their own, so the field beside Relink is the
+    /// only place the speed of an imported run can be said: it opens on the 25
+    /// the import gave it, writes the exact pair the engine stores, and undoes
+    /// in one step. A file that is not a run is offered no field at all.
+    testWidgets('an image sequence takes a new rate from its menu',
+        (tester) async {
+      final dir = Directory.systemTemp.createTempSync('lumit-sequence-rate');
+      for (var n = 1; n <= 8; n++) {
+        File('${dir.path}/frame${n.toString().padLeft(4, '0')}.png')
+            .writeAsBytesSync(const [0]);
+      }
+      final p = freshProject();
+      final run =
+          p.state.project!.importFootage(path: '${dir.path}/frame0001.png');
+      p.state.project!.importFootage(path: 'C:/clips/shot.mov');
+
+      await tester.pumpWidget(hostPanel(
+        child: const ProjectPanelFrb(),
+        state: p.state,
+        uiState: p.uiState,
+      ));
+      await tester.pump();
+
+      Future<void> openMenu(String name) async {
+        await tester.tapAt(
+          tester.getCenter(rowText(name)),
+          buttons: kSecondaryButton,
+        );
+        await tester.pumpAndSettle();
+      }
+
+      await openMenu('frame[0001-0008].png');
+      const field = ValueKey('project-menu-sequence-rate-field');
+      expect(find.byKey(const ValueKey('project-menu-sequence-rate')),
+          findsOneWidget);
+      expect(
+        tester.widget<HouseTextField>(find.byKey(field)).controller.text,
+        '25',
+        reason: 'the rate the import gave it, in the hand the dialogs write in',
+      );
+
+      await tester.enterText(find.byKey(field), '23.976');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      expect(
+        (run.sequenceRate()!.fpsNum, run.sequenceRate()!.fpsDen),
+        (24000, 1001),
+        reason: 'a decimal in the field, the exact pair in the document',
+      );
+
+      p.state.project!.undo();
+      expect((run.sequenceRate()!.fpsNum, run.sequenceRate()!.fpsDen), (25, 1),
+          reason: 'one gesture, one op, one undo step');
+
+      // One file is not a run, so there is no speed of its own to correct.
+      await openMenu('shot.mov');
+      expect(find.byKey(const ValueKey('project-menu-sequence-rate')),
+          findsNothing);
+      dir.deleteSync(recursive: true);
     });
 
     /// Renaming a folder moved to the row menu with the other two kinds'.

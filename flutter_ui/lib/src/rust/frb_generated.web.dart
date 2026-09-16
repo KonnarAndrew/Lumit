@@ -285,6 +285,9 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
   BridgeScopeTrace dco_decode_box_autoadd_bridge_scope_trace(dynamic raw);
 
   @protected
+  BridgeSequenceRate dco_decode_box_autoadd_bridge_sequence_rate(dynamic raw);
+
+  @protected
   BridgeShapeItem dco_decode_box_autoadd_bridge_shape_item(dynamic raw);
 
   @protected
@@ -841,6 +844,9 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
   BridgeSelectorShape dco_decode_bridge_selector_shape(dynamic raw);
 
   @protected
+  BridgeSequenceRate dco_decode_bridge_sequence_rate(dynamic raw);
+
+  @protected
   BridgeShaderGraphNode dco_decode_bridge_shader_graph_node(dynamic raw);
 
   @protected
@@ -1388,6 +1394,10 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
   BridgeScalar? dco_decode_opt_box_autoadd_bridge_scalar(dynamic raw);
 
   @protected
+  BridgeSequenceRate? dco_decode_opt_box_autoadd_bridge_sequence_rate(
+      dynamic raw);
+
+  @protected
   BridgeSpan? dco_decode_opt_box_autoadd_bridge_span(dynamic raw);
 
   @protected
@@ -1715,6 +1725,10 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
 
   @protected
   BridgeScopeTrace sse_decode_box_autoadd_bridge_scope_trace(
+      SseDeserializer deserializer);
+
+  @protected
+  BridgeSequenceRate sse_decode_box_autoadd_bridge_sequence_rate(
       SseDeserializer deserializer);
 
   @protected
@@ -2353,6 +2367,10 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
 
   @protected
   BridgeSelectorShape sse_decode_bridge_selector_shape(
+      SseDeserializer deserializer);
+
+  @protected
+  BridgeSequenceRate sse_decode_bridge_sequence_rate(
       SseDeserializer deserializer);
 
   @protected
@@ -3004,6 +3022,10 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  BridgeSequenceRate? sse_decode_opt_box_autoadd_bridge_sequence_rate(
+      SseDeserializer deserializer);
+
+  @protected
   BridgeSpan? sse_decode_opt_box_autoadd_bridge_span(
       SseDeserializer deserializer);
 
@@ -3343,6 +3365,10 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
   @protected
   void sse_encode_box_autoadd_bridge_scope_trace(
       BridgeScopeTrace self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_bridge_sequence_rate(
+      BridgeSequenceRate self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_bridge_shape_item(
@@ -4064,6 +4090,10 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
       BridgeSelectorShape self, SseSerializer serializer);
 
   @protected
+  void sse_encode_bridge_sequence_rate(
+      BridgeSequenceRate self, SseSerializer serializer);
+
+  @protected
   void sse_encode_bridge_shader_graph_node(
       BridgeShaderGraphNode self, SseSerializer serializer);
 
@@ -4740,6 +4770,10 @@ abstract class BridgeLibApiImplPlatform extends BaseApiImpl<BridgeLibWire> {
   @protected
   void sse_encode_opt_box_autoadd_bridge_scalar(
       BridgeScalar? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_bridge_sequence_rate(
+      BridgeSequenceRate? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_bridge_span(
