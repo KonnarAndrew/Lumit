@@ -4322,6 +4322,14 @@ fn precompose_sound_mix_nests_a_comp_per_row_and_clears_the_mark() {
         );
     }
     assert_ne!(music.layers[0].effects[0].id, music.layers[1].effects[0].id);
+    for row_layer in &mix.layers {
+        assert!(
+            row_layer.effects.is_empty(),
+            "the rack rides on the clips alone: left on the row's Precomp \
+             layer it would be a bus over the whole row (docs/09 §3.1) and \
+             would run a second time"
+        );
+    }
 
     // A bare Audio layer is one clip, and it goes in the same way.
     let voice = doc

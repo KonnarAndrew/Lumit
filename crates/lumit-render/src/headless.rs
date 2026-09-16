@@ -2893,6 +2893,32 @@ fn audio_chain_of(
     }))
 }
 
+/// The Precomp layer's **bus** chain: its rack, where the stack holds
+/// anything that sounds (docs/09 §3.1).
+///
+/// Everything arriving through the layer is summed and run through this, so
+/// the family is asked here rather than left to the chain to answer when it
+/// opens: a picture effect on a Precomp layer is the ordinary case, and it
+/// must not put a whole nested comp through the bus stage for nothing.
+fn bus_chain_of(
+    doc: &Arc<Document>,
+    comp: &Composition,
+    layer: &lumit_core::model::Layer,
+    offset_s: f64,
+    base_s: f64,
+) -> Option<std::sync::Arc<crate::export::AudioChain>> {
+    let sounds = layer.effects.iter().filter(|e| e.enabled).any(|e| {
+        lumit_core::fx::audio_plugin_id(&e.effect.match_name).is_some()
+            || lumit_core::fx::BUILTIN_DEFS
+                .get(&e.effect.match_name)
+                .is_some_and(|def| def.schema().category == lumit_core::fx::FxCategory::Audio)
+    });
+    if !sounds {
+        return None;
+    }
+    audio_chain_of(doc, comp, layer, offset_s, base_s)
+}
+
 /// The **clip's own** rack, or `None` where the clip has no stack or has
 /// bypassed it (docs/impl/audio-timeline.md §4).
 ///
@@ -3109,6 +3135,10 @@ impl AudioJobsBuilder {
                     volume: layer.volume_db.clone(),
                     pan: layer.pan.clone(),
                     offset_s,
+                    // The layer's own rack is the **bus**: the mixer sums what
+                    // arrives through this carrier and the rack hears the sum,
+                    // ahead of the Volume and Pan beside it here.
+                    chain: bus_chain_of(doc, comp, layer, offset_s, base_s),
                 });
                 // The nested comp's own **master fader** rides down with
                 // the Precomp layer's Volume. A master is a stage
@@ -3120,6 +3150,11 @@ impl AudioJobsBuilder {
                         volume: lumit_core::anim::Property::fixed(nested.master_volume_db),
                         pan: lumit_core::anim::Property::zero(),
                         offset_s,
+                        // Inside the bus, so the rack hears the comp at the
+                        // level its own master fader sets: a master is a stage
+                        // on that comp's sum, and the parent's insert comes
+                        // after it.
+                        chain: None,
                     });
                 }
                 visited.push(*nested_id);
@@ -5419,6 +5454,71 @@ mod tests {
         }
         let (clip_chain, layer_chain, _) = chains(&doc, &mut builder);
         assert!(clip_chain.is_none() && layer_chain.is_none());
+    }
+
+    /// **A Precomp layer's rack rides on the carrier**, which is what makes
+    /// the bus stage possible (docs/09 §3.1): the mixer sums everything
+    /// arriving through the layer and runs the rack over the sum.
+    ///
+    /// Only a stack that sounds is carried. A picture effect on a Precomp
+    /// layer is the ordinary case and must not put a whole nested comp
+    /// through the bus stage for nothing, and the layer's fx switch drops the
+    /// rack here exactly as it drops a layer's own.
+    #[test]
+    fn a_precomp_layers_rack_rides_on_the_carrier() {
+        let mut doc = Document::new();
+        let song = push_footage_item(&mut doc, "song.wav");
+        let inner = push_comp(&mut doc, "A", 32, 32);
+        push_layer(&mut doc, inner, LayerKind::Footage { item: song });
+        let outer = push_comp(&mut doc, "B", 32, 32);
+        push_layer(&mut doc, outer, LayerKind::Precomp { comp: inner });
+
+        let mut builder = AudioJobsBuilder::new();
+        seed_has_audio(song);
+        let carrier_chain = |doc: &Document, builder: &mut AudioJobsBuilder| {
+            let c = doc.comp(outer).expect("comp").clone();
+            let jobs = builder.audio_jobs(&Arc::new(doc.clone()), &c);
+            assert_eq!(jobs.len(), 1);
+            assert_eq!(jobs[0].carriers.len(), 1);
+            jobs[0].carriers[0].chain.clone()
+        };
+        assert!(
+            carrier_chain(&doc, &mut builder).is_none(),
+            "a Precomp layer with no effects carries a gain and nothing more"
+        );
+
+        // A picture effect is not a rack: the nested comp stays a run per
+        // source, as it was.
+        if let Some(ProjectItem::Composition(c)) = doc.item_mut(outer) {
+            c.layers[0].effects = vec![lumit_core::fx::instantiate("blur").expect("blur")];
+        }
+        assert!(
+            carrier_chain(&doc, &mut builder).is_none(),
+            "a blur on a Precomp layer opens no bus"
+        );
+
+        // An audio effect is.
+        if let Some(ProjectItem::Composition(c)) = doc.item_mut(outer) {
+            c.layers[0].effects = vec![
+                lumit_core::fx::instantiate("blur").expect("blur"),
+                lumit_core::fx::instantiate("audio_limiter").expect("a limiter"),
+            ];
+        }
+        let chain = carrier_chain(&doc, &mut builder).expect("the bus chain");
+        assert_eq!(
+            chain.effects.len(),
+            2,
+            "the whole stack goes down, as a layer's own does"
+        );
+
+        // And the fx switch drops it, as it drops a layer's own rack.
+        if let Some(ProjectItem::Composition(c)) = doc.item_mut(outer) {
+            c.layers[0].switches.fx = false;
+        }
+        assert!(
+            carrier_chain(&doc, &mut builder).is_none(),
+            "the fx switch reaches the bus too"
+        );
     }
 
     /// **A Precomp layer over a comp that has sound in it says it has sound.**
