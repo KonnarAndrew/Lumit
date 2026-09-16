@@ -163,9 +163,14 @@ class ProjectRowFrb extends StatefulWidget {
   final ProjectColumns columns;
   final ProjectCells cells;
 
-  /// How many rows are selected in all — a second click renames only when this
-  /// row is the whole selection.
-  final int selectionCount;
+  /// Whether this row is the whole selection, which is what decides on a click
+  /// that there is nothing to collapse.
+  ///
+  /// The count of picked rows would say the same thing, and the row would then
+  /// have to be rebuilt every time the count moved anywhere in the panel. This
+  /// is the row's own answer, so a click redraws the two rows whose shading
+  /// changed.
+  final bool loneSelection;
   final ValueChanged<SelectMode> onSelect;
 
   /// The panel's whole footage selection, read when a drag starts so dragging
@@ -230,7 +235,7 @@ class ProjectRowFrb extends StatefulWidget {
     required this.renaming,
     required this.columns,
     required this.cells,
-    required this.selectionCount,
+    required this.loneSelection,
     required this.onSelect,
     required this.selectedFootage,
     required this.onStartRename,
@@ -354,7 +359,7 @@ class _ProjectRowFrbState extends State<ProjectRowFrb> {
     _primaryDown = false;
     if (_dragged || !_wasSelectedAtDown) return;
     if (_selectModeFromKeyboard() != SelectMode.replace) return;
-    if (widget.selectionCount > 1) widget.onSelect(SelectMode.replace);
+    if (!widget.loneSelection) widget.onSelect(SelectMode.replace);
   }
 
   /// **Opening a row**, and what opening means is the item's own answer: a
