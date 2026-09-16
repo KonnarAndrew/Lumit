@@ -26,7 +26,9 @@ import 'package:lumit_flutter/src/rust/api/layer.dart';
 import 'package:lumit_flutter/src/rust/api/project_item.dart';
 import 'package:lumit_flutter/state/external_links.dart';
 import 'package:lumit_flutter/state/viewer_view.dart';
+import 'package:lumit_flutter/state/workspace.dart';
 import 'package:lumit_flutter/theme/theme.dart';
+import 'package:lumit_flutter/widgets/controls.dart';
 import 'package:provider/provider.dart';
 
 import 'frb_test_support.dart';
@@ -811,6 +813,82 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('palette-item-Scene beta')));
       await tester.pumpAndSettle();
       expect(p.uiState.selectedComp?.internalid, comp.internalid);
+    });
+
+    /// **The palette's memory died with the process.** The list of what had
+    /// been run lived in a top-level variable in the palette's own file, so
+    /// the order it learned was gone by the next launch. It belongs with the
+    /// rest of the per-user state, in the workspace file, and the palette is
+    /// handed it rather than keeping one.
+    testWidgets('the palette remembers what it ran, and keeps twenty',
+        (tester) async {
+      final p = await mount(tester);
+      final workspace = p.uiState.workspace;
+
+      await choose(tester, 'Window', 'Command palette…');
+      await tester.pump();
+      await tester.enterText(
+          find.byKey(const ValueKey('palette-query')), 'timeline');
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('palette-item-Timeline')));
+      await tester.pumpAndSettle();
+
+      expect(workspace.paletteRecents.first, 'Timeline');
+      expect((Workspace()..load()).paletteRecents.first, 'Timeline',
+          reason: 'and it is on disk for the next launch');
+
+      // What a launch restores is what the ranking reads: seeded the way the
+      // store seeds it, the entry leads an empty palette.
+      workspace.paletteRecents.insert(0, 'Settings…');
+      await choose(tester, 'Window', 'Command palette…');
+      await tester.pump();
+      final top = tester.widget<MenuRow>(
+          find.byKey(const ValueKey('palette-item-Settings…')));
+      expect(top.selected, isTrue, reason: 'the restored recent leads');
+
+      // Capped, so a store read years from now is still twenty labels.
+      for (var i = 0; i < Workspace.maxPaletteRecents + 5; i++) {
+        workspace.noteCommandRun('Command $i');
+      }
+      expect(workspace.paletteRecents.length, Workspace.maxPaletteRecents);
+      expect(workspace.paletteRecents.first,
+          'Command ${Workspace.maxPaletteRecents + 4}');
+      expect(workspace.paletteRecents, isNot(contains('Command 0')));
+    });
+
+    /// **Two commands taught a shortcut and both were spelled out in Dart.**
+    /// The keymap is the engine's, and a row now shows whatever chord it holds
+    /// for that command's action — the same lookup the menu rows do.
+    testWidgets('the palette teaches the shortcuts the keymap holds',
+        (tester) async {
+      final p = await mount(tester);
+      await choose(tester, 'Window', 'Command palette…');
+      await tester.pump();
+      final query = find.byKey(const ValueKey('palette-query'));
+
+      await tester.enterText(query, 'new composition');
+      await tester.pump();
+      expect(find.text('Ctrl+N'), findsOneWidget);
+      expect(p.uiState.keymap.chordFor('comp.new'), 'Ctrl+N',
+          reason: 'and that is the engine keymap talking, not a Dart table');
+
+      await tester.enterText(query, 'save as');
+      await tester.pump();
+      expect(find.text('Ctrl+Shift+S'), findsOneWidget);
+
+      await tester.enterText(query, 'project settings');
+      await tester.pump();
+      expect(find.text('Ctrl+Alt+Shift+K'), findsOneWidget);
+
+      // The View and Resolution rows carry the Viewer's own chords, the ones
+      // their menu rows already teach.
+      await tester.enterText(query, 'zoom in');
+      await tester.pump();
+      expect(find.text('Ctrl+='), findsOneWidget);
+
+      await tester.enterText(query, 'half');
+      await tester.pump();
+      expect(find.text('Ctrl+Shift+J'), findsOneWidget);
     });
 
     /// **`Ctrl+Shift+P` was bound to nothing.** The palette's list of commands

@@ -568,42 +568,52 @@ class LumitMenuBarFrb extends StatelessWidget {
 
   /// The palette's commands are declared here, where the menu items are, so the
   /// two cannot drift apart into different ideas of what "New composition" does.
-  /// Only shortcuts the key handler genuinely serves are taught — a palette
-  /// that teaches a binding that does nothing is worse than one that is shy.
+  /// A row teaches whatever chord the keymap gives its action, the same lookup
+  /// the menus do, so a rebound shortcut is taught rebound and an unbound one
+  /// is not taught at all.
   /// Beyond commands it carries the other three categories docs/07 §12 asks
   /// for: every effect (applies to the selected layer), every comp (fronts
   /// it), and every panel (focuses it) — each under its own badge.
   Future<void> _palette(BuildContext context) async {
     final project = app.project;
     final ui = Provider.of<LumitUiState>(context, listen: false);
+    final keymap = ui.keymap;
+    final workspace = ui.workspace;
     await showCommandPaletteFrb(
       context: context,
+      recent: workspace.paletteRecents,
+      onRun: workspace.noteCommandRun,
       commands: [
         PaletteCommand(
           label: l10n.menuNew,
           category: l10n.menuFile,
+          shortcut: keymap.chordFor('file.new'),
           run: app.newProject,
         ),
         if (project != null) ...[
           PaletteCommand(
             label: l10n.menuSave,
             category: l10n.menuFile,
+            shortcut: keymap.chordFor('file.save'),
             run: () => saveProjectFrb(app, ui, picker: savePicker),
           ),
           PaletteCommand(
             label: l10n.menuSaveAs,
             category: l10n.menuFile,
+            shortcut: keymap.chordFor('file.save.as'),
             run: () =>
                 saveProjectFrb(app, ui, forcePicker: true, picker: savePicker),
           ),
           PaletteCommand(
             label: l10n.menuImportFootage,
             category: l10n.menuFile,
+            shortcut: keymap.chordFor('file.import'),
             run: () => importFootageFrb(app, picker: footagePicker),
           ),
           PaletteCommand(
             label: l10n.newComposition,
             category: l10n.menuComposition,
+            shortcut: keymap.chordFor('comp.new'),
             run: () => newCompositionFrb(context, app),
           ),
           PaletteCommand(
@@ -614,18 +624,19 @@ class LumitMenuBarFrb extends StatelessWidget {
           PaletteCommand(
             label: l10n.menuUndo,
             category: l10n.menuEdit,
-            shortcut: 'Ctrl+Z',
+            shortcut: keymap.chordFor('edit.undo'),
             run: () => undoFrb(app),
           ),
           PaletteCommand(
             label: l10n.menuRedo,
             category: l10n.menuEdit,
-            shortcut: 'Ctrl+Shift+Z',
+            shortcut: keymap.chordFor('edit.redo'),
             run: () => redoFrb(app),
           ),
           PaletteCommand(
             label: l10n.menuExport,
             category: l10n.menuFile,
+            shortcut: keymap.chordFor('file.export'),
             run: () => exportFrb(context),
           ),
           // Every comp, by name: Enter fronts it in the Viewer and Timeline.
@@ -657,6 +668,7 @@ class LumitMenuBarFrb extends StatelessWidget {
           PaletteCommand(
             label: zoom.title,
             category: l10n.menuView,
+            shortcut: keymap.chordFor(zoom.action),
             run: () => ui.requestViewerZoom(zoom),
           ),
         // Under the Resolution badge rather than View's, because "Full" on its
@@ -665,17 +677,22 @@ class LumitMenuBarFrb extends StatelessWidget {
           PaletteCommand(
             label: resolution.title,
             category: l10n.menuResolution,
+            shortcut: resolution.action == null
+                ? null
+                : keymap.chordFor(resolution.action!),
             run: () => ui.setPreviewResolution(resolution),
           ),
         PaletteCommand(
           label: l10n.menuSettings,
           category: l10n.menuEdit,
+          shortcut: keymap.chordFor('app.settings'),
           run: () => showSettingsWindowFrb(context),
         ),
         if (app.project case final project?)
           PaletteCommand(
             label: l10n.menuProjectSettings,
             category: l10n.menuFile,
+            shortcut: keymap.chordFor('project.settings'),
             run: () => showProjectSettingsFrb(context, project),
           ),
       ],

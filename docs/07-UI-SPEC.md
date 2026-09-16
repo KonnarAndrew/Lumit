@@ -2896,9 +2896,12 @@ Export window. Export never blocks editing; the queue runs in the background.
 **Shipped (v1):** the palette exists — Ctrl/Cmd+Shift+P or Window → Command palette…,
 fuzzy search (subsequence; a label match outranks a keyword-only one), arrow keys navigate,
 Enter/click runs, Esc closes, drawn as a top-anchored modal. v1 covers the
-**commands** category (save, undo/redo, new composition, add layers, reset workspace, open
-Settings, colour scheme and shape switches, export). The effects/comps/panels categories,
-recent-first ranking, category badges and taught shortcuts fill in later.
+**commands** category (new project, save, save as, import, new composition, new node graph,
+undo/redo, export, magnification, preview resolution, Settings and Project settings), and
+the effects, comps and panels categories with their badges. Recent-first ranking is in: the
+last twenty entries run are kept in the workspace file beside the rest of the per-user
+settings, so the order survives a restart. A row teaches whatever chord the keymap holds
+for its action, so a rebound shortcut is taught rebound.
 
 ## 12.1 Composition hierarchy
 
