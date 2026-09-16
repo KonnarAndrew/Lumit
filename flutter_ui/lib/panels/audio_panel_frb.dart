@@ -666,7 +666,6 @@ class _SelectedLayerBlockState extends State<_SelectedLayerBlock> {
                 KeyframeControlsFrb(
                   scalars: [volume],
                   comp: widget.comp,
-                  playheadFrame: frame,
                   onSeek: ui.scrubTo,
                   rowKey: 'audio-volume',
                   onWrite: (next) {
@@ -702,7 +701,6 @@ class _SelectedLayerBlockState extends State<_SelectedLayerBlock> {
                 KeyframeControlsFrb(
                   scalars: [pan],
                   comp: widget.comp,
-                  playheadFrame: frame,
                   onSeek: ui.scrubTo,
                   rowKey: 'audio-pan',
                   onWrite: (next) {
