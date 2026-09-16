@@ -365,7 +365,8 @@ class EffectParamRowFrb extends StatelessWidget {
     // in the value column with the name column left empty, rather than as a
     // label beside a button repeating it: the row is one statement, and the
     // house style is that a control carrying words does not need them twice.
-    if (param.kind is BridgeParamKind_Action) {
+    final action = param.kind is BridgeParamKind_Action;
+    if (action && twoColumn && valueColumn == null) {
       return fxTwoColumnRow(
         context: context,
         name: const SizedBox.shrink(),
@@ -392,7 +393,9 @@ class EffectParamRowFrb extends StatelessWidget {
         children: [
           if (keyframeSlot != null) keyframeSlot,
           const SizedBox(width: 4),
-          Expanded(child: label),
+          // The button keeps the value column, so it lines up with the controls
+          // above and below it, and the name column stays empty.
+          Expanded(child: action ? const SizedBox.shrink() : label),
           if (valueColumn case final col?) ...[
             SizedBox(
               width: col.width,
@@ -2095,6 +2098,62 @@ final Map<String, List<BridgeParamGroup>> _groupSchema = {};
 /// parameter list into.
 List<BridgeParamGroup> cachedListParameterGroups(String effect) =>
     _groupSchema[effect] ??= listParameterGroups(effect: effect);
+
+/// Whether a conditional group is showing, given the values in play. A group
+/// with `visible_when` is skipped whole, members included, while the named
+/// sibling Choice holds another value.
+///
+/// One group may answer to several modes: the Lens flare's source-colour
+/// toggle belongs to Matte and Lights alike.
+bool paramGroupVisible(
+  BridgeParamGroup group,
+  Map<String, BridgeEffectValue> values,
+) {
+  final on = group.visibleWhenParam;
+  if (on == null || group.visibleWhenValues.isEmpty) return true;
+  return switch (values[on]) {
+    BridgeEffectValue_Choice(:final field0) =>
+      group.visibleWhenValues.contains(field0),
+    _ => false,
+  };
+}
+
+/// **The uniform Matte row** and **the Mix row**: which of [params] ride beside
+/// [host] rather than taking a row of their own.
+///
+/// A Layer picker carries its Channel choice and Invert switch beside it on one
+/// row, a Mix slider its Blend choice. A rider is found by id convention among
+/// the parameters the schema places RIGHT AFTER its host - `matte` +
+/// `matte_invert` + `matte_channel`, Depth of field's older `depth` +
+/// `depth_invert`, whose stored ids are kept, and `mix` + `blend` - so the
+/// injected rows and the effects that predate them fold the same way without a
+/// table here naming them, and a channel an effect declares elsewhere for
+/// itself (Depth of field's `depth_channel`, three twirls down) stays the row
+/// it always was, as does the Lens flare's own `blend`, which sits BEFORE its
+/// Mix. Choices come before switches so the row reads picker, Channel, Invert.
+///
+/// It costs no bridge call: [params] is the cached schema the caller already
+/// read.
+List<BridgeParamInfo> paramRidersFor(
+  List<BridgeParamInfo> params,
+  BridgeParamInfo host,
+) {
+  final names = switch (host.kind) {
+    BridgeParamKind_Layer() => {'${host.id}_invert', '${host.id}_channel'},
+    BridgeParamKind_Float() when host.id == 'mix' => {'blend'},
+    _ => const <String>{},
+  };
+  final out = <BridgeParamInfo>[];
+  for (var i = params.indexOf(host) + 1;
+      i < params.length && names.contains(params[i].id);
+      i++) {
+    out.add(params[i]);
+  }
+  out.sort((a, b) =>
+      (a.kind is BridgeParamKind_Bool ? 1 : 0) -
+      (b.kind is BridgeParamKind_Bool ? 1 : 0));
+  return out;
+}
 
 final Map<String, List<BridgeEnabledWhen>> _enabledWhenSchema = {};
 

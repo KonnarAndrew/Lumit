@@ -1944,17 +1944,7 @@ class _EffectSection extends StatelessWidget {
         memberOf[m] = g;
       }
     }
-    bool groupVisible(BridgeParamGroup g) {
-      final param = g.visibleWhenParam;
-      final want = g.visibleWhenValues;
-      if (param == null || want.isEmpty) return true;
-      return switch (values[param]) {
-        // A group may answer to SEVERAL modes (the flare's
-        // source-colour toggle belongs to Matte and Lights alike).
-        BridgeEffectValue_Choice(:final field0) => want.contains(field0),
-        _ => false,
-      };
-    }
+    bool groupVisible(BridgeParamGroup g) => paramGroupVisible(g, values);
 
     // Which rows another parameter has taken over (`EnabledWhen`).
     // Judged on what the panel is SHOWING, staged drag included, so ticking a
@@ -1966,37 +1956,12 @@ class _EffectSection extends StatelessWidget {
     };
     final disabled = disabledParams(info.name, shown);
 
-    // **The uniform Matte row** and **the Mix row**. A Layer
-    // picker carries its Channel choice and Invert switch beside it on one
-    // row, a Mix slider its Blend choice, and none of the riders gets a row of
-    // its own. A rider is found by id convention among the parameters the
-    // schema places RIGHT AFTER its host — `matte` + `matte_invert` +
-    // `matte_channel`, Depth of field's older `depth` + `depth_invert`, whose
-    // stored ids are kept, and `mix` + `blend` — so the injected rows and
-    // the effects that predate them fold the same way without a table here
-    // naming them, and a channel an effect declares elsewhere for itself
-    // (Depth of field's `depth_channel`, three twirls down) stays the row it
-    // always was, as does the Lens flare's own `blend`, which sits BEFORE its
-    // Mix. Choices draw before switches so the row reads picker, Channel,
-    // Invert. It costs no bridge call: `params` is the cached schema this
-    // method already read.
-    List<BridgeParamInfo> ridersFor(BridgeParamInfo p) {
-      final names = switch (p.kind) {
-        BridgeParamKind_Layer() => {'${p.id}_invert', '${p.id}_channel'},
-        BridgeParamKind_Float() when p.id == 'mix' => {'blend'},
-        _ => const <String>{},
-      };
-      final out = <BridgeParamInfo>[];
-      for (var i = params.indexOf(p) + 1;
-          i < params.length && names.contains(params[i].id);
-          i++) {
-        out.add(params[i]);
-      }
-      out.sort((a, b) =>
-          (a.kind is BridgeParamKind_Bool ? 1 : 0) -
-          (b.kind is BridgeParamKind_Bool ? 1 : 0));
-      return out;
-    }
+    // The uniform Matte row and the Mix row: a Layer picker carries its Channel
+    // and Invert beside it, a Mix slider its Blend, and no rider gets a row of
+    // its own. [paramRidersFor] holds the rule, so the box on the node graph
+    // canvas folds by the same one.
+    List<BridgeParamInfo> ridersFor(BridgeParamInfo p) =>
+        paramRidersFor(params, p);
 
     final folded = <String>{
       for (final p in params)

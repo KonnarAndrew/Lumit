@@ -634,6 +634,32 @@ catalogue entry's own listing declares no picture ports, so the canvas adds `inp
 `output` for auto-wire and the console's type filter. The layer canvas gained one gesture:
 double-clicking a Node graph box opens the comp it is bound to.
 
+**Built 2026-09-16, after issue 153.** An open Fx box draws its controls (§4.3): the
+picture's sockets first, then one row per parameter the **Effect controls panel** would
+list, each row carrying that panel's own row widget, with the parameter's socket on the
+card's edge level with it. The rows come out of the one rule that panel applies, so the
+two can never disagree: a row the instance is hiding is out, a group whose `visible_when`
+the values do not meet is out with its members, a rider rides beside its host (Invert and
+Channel on the Matte row, Blend on the Mix row) rather than taking a row and a socket, a
+row another control has taken over draws quiet and takes no drag, and a curve is left out
+since its editor is no 24px row. An Action draws its button in the value column, and the
+Node graph box's Open graph is the canvas's own way in. A parameter with no socket (a
+switch, a choice, a seed, a file) still gets its row. A row whose socket is wired draws
+the name alone, since the wire is the value. An open box is 300 wide and a control row 24
+tall; a shut box, and a box with nothing to set, keep the drawing's 150 and 18. A box that
+is all controls, which is every driver, puts its output dot on its first row rather than
+on a blank row underneath, and drops that row's port name so the words do not sit on the
+control. Every box added by the canvas or pasted into it starts open, by being put in
+`exposed` in the same commit; a box in a saved graph, and a saved group inserted from the
+library, keep the state the file says, since a group laid out at the shut pitch overlaps
+itself once every box arrives 300 wide.
+The report that the twirl showed nothing for Gaussian blur or Transform was chased on every
+road the harness can drive (a seeded box, a console add, a wired chain with a driver, the
+Timeline's canvas up beside the Graph panel) and the twirl opened each time; the one fault
+found nearby is that the keyboard console drops every box on the viewport's centre, so
+unmoved boxes stack in document order and `socketAt` finds the buried box's socket first.
+The layer canvas passes no parameter rows and draws as it did.
+
 ### 4.3 The Node panel
 
 The panel follows the picked box, as it does for a layer's graph. For an Fx node it draws the
@@ -653,6 +679,13 @@ comp model exposes `isNodeGraph` as it exposes `compGone`, off the held read, so
 and the Graph panel branch for nothing. `currentLayer` in the row widget became nullable and
 its four callers guard it, which is what lets a graph box's rows draw with no layers to pick
 from.
+
+**Built 2026-09-16.** The same rows now draw on the open box itself (§4.2), a second way in
+rather than a replacement: the panel keeps the point rows, the Input form and the Read face,
+and is where a driven row's mark and tooltip live. The box's rows write through the same
+staged instance and the same `set_node_graph`, one op per edit and one per drag, and
+preview through the same request. The canvas reads each box's `get_info` once beside the
+graph and holds it, so a row on a box costs nothing on a rebuild, a hover, a pan or a zoom.
 
 ### 4.4 Project panel, Timeline, Effect controls
 

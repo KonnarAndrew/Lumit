@@ -70,7 +70,12 @@ Two switches sit in the panel's toolbar. **Auto-wire** joins a dropped box to th
 hand as it lands. **Heal** reconnects the neighbours of a deleted box.
 
 Each box carries a tick and a twirl. The tick bypasses the box, which then hands on the
-picture it was given; the twirl opens every socket.
+picture it was given. The twirl opens the box: it draws the rows Effect controls would draw
+for the same effect, each with its own control on it, a value well, a slider, a checkbox, a
+dropdown or a colour swatch, with the parameter's socket beside it, so a box can be set
+without leaving the canvas. A row whose socket is wired shows its name alone, because the
+wire decides the value. A new box arrives open; a box in a saved project keeps the state it
+was saved with. The Node panel shows the same rows for the picked box.
 
 A wire's colour is the type of value it carries:
 
@@ -155,14 +160,14 @@ value Input and the Output itself offer no chip.
 
 ## Keyframes
 
-Turn a row's stopwatch on in the Node panel to start keyframing it.
+Turn a row's stopwatch on, in the Node panel or on the open box, to start keyframing it.
 
 ## Saved groups
 
 **Save group** writes the picked boxes, the wires among them and their layout to a
 `.lumngrp` file. The Output is never saved. Saved groups have a block of their own in the
-console, and inserting one drops its boxes where the pointer is. A Read whose item the
-project lacks arrives wearing the missing mark.
+console, and inserting one drops its boxes where the pointer is, each one open or shut as
+it was saved. A Read whose item the project lacks arrives wearing the missing mark.
 
 ## Sound
 

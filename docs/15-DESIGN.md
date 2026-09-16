@@ -1781,6 +1781,15 @@ it. Binding rules beyond the drawings themselves:
   parameter, which is what an Effect controls twirl does to the rows under it. There are
   **no lettered badges** on the canvas: the drawing's `E` and `B` said in two letters
   what the application already says in two marks.
+- **An open node graph box carries its controls.** Each row is a parameter the Effect
+  controls panel would draw, in that panel's own order and folded by its own rules, so a
+  rider sits beside its host and a row that panel hides is not on the box either. The row
+  is that panel's widget with the socket on the card's edge level with it, the way Blender
+  draws a node. An open box is 300 wide and a control row 24 tall, the 20px well with 2px
+  of air; a socket-only row stays 18, and a shut box keeps the drawing's 150. The row keeps
+  12 clear of either edge and gives the control a 150 column. A wired row draws the name
+  alone, and a row another control has taken over draws quiet. A box of controls alone puts
+  its output dot on its first row. A new box starts open; a saved group keeps its own.
 - The canvas ground is `surface_0` under a dot grid one step lighter, whose dots stay
   20–40px apart **on screen** at every zoom: the grid skips every other line each time
   the zoom would crowd them closer than the 20px they are drawn at, so it thins as the

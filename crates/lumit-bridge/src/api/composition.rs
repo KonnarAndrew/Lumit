@@ -3345,6 +3345,17 @@ impl CompositionReference {
                 taken.insert(input.id.clone());
             }
         }
+        // A pasted box starts open, as a box added any other way does. A saved
+        // group is an arrangement somebody laid out, so it keeps the boxes shut
+        // that were saved shut, and lands at the pitch it was drawn at.
+        if !named {
+            graph
+                .exposed
+                .extend(added.nodes.iter().filter_map(|node| match node {
+                    lumit_core::comp_graph::GraphNode::Fx(instance) => Some(instance.id),
+                    _ => None,
+                }));
+        }
         graph.nodes.extend(added.nodes);
         graph.edges.extend(added.edges);
         graph.layout.extend(added.layout);

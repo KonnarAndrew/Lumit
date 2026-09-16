@@ -15320,6 +15320,46 @@ fn pasting_graph_boxes_mints_fresh_ids_and_adds_no_group() {
     );
 }
 
+/// **A paste opens its boxes; a saved group keeps its own arrangement.** The
+/// two share one insert, and a group laid out with shut boxes overlaps itself
+/// the moment every box arrives 300 wide.
+#[test]
+fn an_inserted_graph_group_keeps_its_boxes_shut_and_a_paste_opens_them() {
+    let (_project, graph, _) = node_graph_to_wire();
+
+    let blur = graph
+        .new_graph_instance("blur".into(), None)
+        .expect("a blur box");
+    let blur_id = blur.id();
+    let wiring = wiring_of(&graph);
+    graph
+        .set_node_graph(vec![blur], wiring)
+        .expect("one box, saved shut");
+    let text = graph
+        .save_graph_group("Soft".into(), 0, vec![blur_id])
+        .expect("saved");
+
+    graph
+        .insert_graph_group(text.clone(), 40.0, 60.0)
+        .expect("inserted");
+    assert!(
+        graph
+            .get_node_graph()
+            .expect("the graph")
+            .wiring
+            .exposed
+            .is_empty(),
+        "an insert keeps the state the group was saved with"
+    );
+
+    let pasted = graph.paste_graph_boxes(text, 200.0, 60.0).expect("pasted");
+    assert_eq!(
+        graph.get_node_graph().expect("the graph").wiring.exposed,
+        pasted,
+        "a paste opens its boxes, as a box added any other way is"
+    );
+}
+
 /// A pasted Input beside its original takes the next free id, since the id
 /// is its row outside the graph and two Inputs cannot share one.
 #[test]
