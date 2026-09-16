@@ -73,6 +73,8 @@ lives. Delete a point when it lands, its regression test is the record.
 - The degradation reading should name what it skipped (docs/07 §2.2 item 9).
 - Graph editor zoom and auto-fit should use `SmoothZoom`.
 - Smooth edge-follow with a setting, and `Shift+=` zoom to the work area (docs/07 §4.6).
+- Beat tap: `/` during playback drops a beat marker at the playhead (docs/07 §10). It sits
+  beside numpad `*`, which adds a marker, and is free on a laptop too.
 - Shape layers: nested groups, wiggle, gradient stop lists, joins and caps other than round.
 - Type: vertical type, real glyph metrics across the bridge, multiple lines, a character
   panel.
@@ -97,6 +99,8 @@ lives. Delete a point when it lands, its regression test is the record.
   the selection. And somewhere to keep themes besides the workspace file.
 - The boot splash needs an engine boot event stream.
 - First-run setup's four-card version (docs/07 §13.1).
+- A Welcome screen redesign, done with an optional first-run tutorial that explains
+  Lumit. Needs a proper design first.
 - Timeline column widths and the property selection should live in the workspace.
 - An autosave doesn't refresh the welcome picture. Send an autosaved event, the frontend
   draws it.
@@ -246,12 +250,8 @@ lives. Delete a point when it lands, its regression test is the record.
   Particulate freeze still happen after the retime curve fix?
 - Is dragging the Timeline panel's height still laggy on your machine now it ships on Skia?
 - Does a panel seam drag feel slow enough to be worth profiling?
-- Beat tap has no key. The digits 1 to 9 add and go to numbered markers now, so `8` is
-  taken. Which key should tap a beat during playback?
 - The drag multiplier popup wears the hint pill’s face. What should its own look be, and
   is there a drawing for it?
-- What should change on the Welcome screen? A retouch was approved on 2026-08-30 and
-  nothing in the tree records what it was.
 - What should the ramp preset shelf be on the Retime property, and where does it sit,
   before Slow, Fast, Smooth and Sharp come back?
 - Now an OCIO colour space transform can sit either side of a LUT, does the LUT still need

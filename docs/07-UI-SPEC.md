@@ -2831,7 +2831,7 @@ The v1 sync toolkit; the Composer workspace is future work specified in
   detection **range** (whole layer or work area), and minimum beat spacing; *Generate*
   writes beat markers to the comp's markers ribbon; *Clear beat markers* removes only
   generated ones. Generated markers are ordinary markers thereafter — movable, deletable,
-  snap targets everywhere (§4.5, §5.3). Manual beat tapping: pressing `8` during playback
+  snap targets everywhere (§4.5, §5.3). Manual beat tapping: pressing `/` during playback
   drops a beat marker at the playhead.
 - **Volume keyframes**: each audio-capable layer has a Volume property (dB) with normal
   keyframe/graph-editor behaviour; the Audio panel's Selected layer section shows the
