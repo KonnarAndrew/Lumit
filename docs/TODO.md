@@ -84,11 +84,8 @@ lives. Delete a point when it lands, its regression test is the record.
   Reveal, Track motion.
 
 **Panels and dialogues**
-- A project carries its panel layout and updates it on save, and a user's own changes to
-  it still save per user. docs/07 §1.5 changes with it.
-- Levels needs RGB, R, G, B and Alpha buttons. Dragging on the Curves graph lags.
+- Dragging on the Curves graph lags.
 - Double-click still waits in 11 places. Move them to `DoubleTap` (Hierarchy rows etc).
-- A frame rate control for an image sequence (`SetSequenceRate`, Project panel menu).
 - Nothing says when a proxy file itself is broken (`BridgeProxy`).
 - The opening card sits at 0% while the file is read. Count bytes over the unzip.
 - Tone mapping has no explanation anywhere on screen.
@@ -100,7 +97,6 @@ lives. Delete a point when it lands, its regression test is the record.
   the selection. And somewhere to keep themes besides the workspace file.
 - The boot splash needs an engine boot event stream.
 - First-run setup's four-card version (docs/07 §13.1).
-- Command palette recents should persist and teach every bound shortcut.
 - Timeline column widths and the property selection should live in the workspace.
 - An autosave doesn't refresh the welcome picture. Send an autosaved event, the frontend
   draws it.
@@ -117,8 +113,6 @@ lives. Delete a point when it lands, its regression test is the record.
   measured costs.
 
 **Audio**
-- A Precomp layer's audio effect rack does nothing. Build the bus stage in `MixPlan` so
-  the nested comp is summed and run through the rack, and change docs/09 §1 and §7 with it.
 - docs/09 says audio must never pause for video, but Every frame holds the sound when a
   picture runs late, which is what it should do. The spec is the side that changes.
 - Scrub audition and its Timeline toggle, the replace-or-merge offer when beats are
