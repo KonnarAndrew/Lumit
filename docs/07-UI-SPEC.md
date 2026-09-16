@@ -2510,7 +2510,9 @@ Shows the **effect stack** of the selected layer (tab per recently viewed layer,
   **Effects with their own display** — Levels' histogram — draw a widget **above**
   their rows, through `customEffectDisplay` in `effect_controls_panel_frb.dart`. Levels shows
   the frame's histogram with its input black, gamma and white handles over it and the output
-  range as a bar beneath, each handle dragging the Master parameter it marks. It is
+  range as a bar beneath, each handle dragging the parameter it marks on the channel
+  chosen by the **button column beside the plot** — the same column Curves puts beside its
+  graph, over Levels' four channel groups (Master, Red, Green, Blue). It is
   presentation: every number still has its own row underneath, the parameters and their ids
   are untouched, and the picture comes from the trace the Scopes panel already reads (§8),
   asked for once per displayed frame and only while the row is on screen.

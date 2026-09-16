@@ -1899,6 +1899,7 @@ class _EffectSection extends StatelessWidget {
           onChanged: onStackChanged,
           pressed: pressed,
           trackCorrected: trackCorrected,
+          themedGraphs: themedGraphs,
         );
 
     return FxSection(
@@ -2628,6 +2629,7 @@ Widget? customEffectDisplay(
   required VoidCallback onChanged,
   required int pressed,
   bool trackCorrected = false,
+  bool themedGraphs = false,
 }) =>
     switch (matchName) {
       'levels' => LevelsDisplayFrb(
@@ -2638,6 +2640,10 @@ Widget? customEffectDisplay(
           playheadFrame: playheadFrame,
           onWrite: onWrite,
           onLive: onLive,
+          // A Red button draws red, on the same setting the curve tabs read.
+          channelColours: themedGraphs
+              ? null
+              : [for (final c in levelsChannels) curveChannelColour(c)],
         ),
       // Camera track's display is a *status*, not a control: how far
       // an analysis running elsewhere has got, and what its solve came to. It
