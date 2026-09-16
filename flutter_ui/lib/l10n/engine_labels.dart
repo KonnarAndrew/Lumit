@@ -1282,6 +1282,8 @@ String? importReason(String key, Map<String, String> args) {
       return l10n.aeLightKindApproximated(a('ae_kind'));
     case 'orientation_not_carried':
       return l10n.aeOrientationNotCarried;
+    case 'casts_shadows_not_carried':
+      return l10n.aeCastsShadowsNotCarried;
 
     // Properties and keyframes.
     case 'spatial_tangents_flattened':
