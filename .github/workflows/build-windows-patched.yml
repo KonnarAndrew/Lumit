@@ -1,0 +1,117 @@
+# Build the Windows installer on GitHub's machines, from whatever branch this is
+# started on, for a contributor who cannot install the toolchain locally.
+#
+# Actions tab → "build windows (patched)" → Run workflow. When it finishes, the
+# run page has three downloads:
+#   windows-installer  — Lumit's setup .exe, the only thing needed to run it
+#   bridge-generated   — the regenerated flutter_rust_bridge files; commit these
+#                        so the main CI's `codegen-fresh` job stays green
+#   test-results       — nothing to download; the test steps' logs are on the
+#                        run page, and a red step there names what failed
+#
+# Toolchain pins are copied from release.yml's `windows-installer` job (same
+# FFmpeg asset and hash, LLVM 18, Flutter 3.47.1); rust-toolchain.toml governs
+# the Rust version as it does everywhere else.
+
+name: build windows (patched)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version string baked into the installer"
+        required: true
+        default: "0.4.0-local"
+
+jobs:
+  build:
+    name: codegen, installer, tests
+    runs-on: windows-latest
+    env:
+      FFMPEG_ASSET: ffmpeg-n8.1.2-50-g1a748fe2cd-win64-gpl-shared-8.1
+      FFMPEG_SHA256: 0a41f31caff48e3035b48f09f5d840bd8d1863008240fc43e457f15e589cf5b3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: stable
+      - name: Install FFmpeg 8.1 (BtbN shared build)
+        shell: pwsh
+        run: |
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-31-13-27/$env:FFMPEG_ASSET.zip"
+          Invoke-WebRequest -MaximumRetryCount 5 -RetryIntervalSec 10 -Uri $url -OutFile "$env:RUNNER_TEMP\ffmpeg.zip"
+          $hash = (Get-FileHash "$env:RUNNER_TEMP\ffmpeg.zip" -Algorithm SHA256).Hash
+          if ($hash -ne $env:FFMPEG_SHA256) { throw "FFmpeg archive hash $hash is not the pinned $env:FFMPEG_SHA256" }
+          Expand-Archive "$env:RUNNER_TEMP\ffmpeg.zip" -DestinationPath "$env:RUNNER_TEMP\ffmpeg"
+          $root = (Get-ChildItem "$env:RUNNER_TEMP\ffmpeg" -Directory | Select-Object -First 1).FullName
+          "FFMPEG_LIBS_DIR=$root\lib"        >> $env:GITHUB_ENV
+          "FFMPEG_INCLUDE_DIR=$root\include" >> $env:GITHUB_ENV
+          "$root\bin" >> $env:GITHUB_PATH
+      - name: Install LLVM 18 (libclang for bindgen)
+        uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0 # v2.0.9
+        with:
+          version: "18.1.8"
+          directory: ${{ runner.temp }}/llvm
+      - name: Point bindgen at libclang
+        shell: pwsh
+        run: '"LIBCLANG_PATH=$env:RUNNER_TEMP\llvm\bin" >> $env:GITHUB_ENV'
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: 3.47.1
+          channel: stable
+          cache: true
+
+      # --- Regenerate the bridge: the graphics-card patch adds an API function --
+      - name: Install flutter_rust_bridge_codegen at the pinned version
+        shell: pwsh
+        run: |
+          $line = Select-String -Path crates/lumit-bridge/Cargo.toml -Pattern '^flutter_rust_bridge = \{ version = "=([0-9.]+)"'
+          if (-not $line) { throw "no pinned flutter_rust_bridge version in crates/lumit-bridge/Cargo.toml" }
+          $v = $line.Matches[0].Groups[1].Value
+          Write-Host "pinned flutter_rust_bridge: $v"
+          cargo install flutter_rust_bridge_codegen --version $v --locked
+      - name: flutter pub get
+        working-directory: flutter_ui
+        run: flutter pub get
+      - name: Regenerate the bridge
+        working-directory: flutter_ui
+        run: flutter_rust_bridge_codegen generate
+      - name: Keep the regenerated bridge files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bridge-generated
+          path: |
+            crates/lumit-bridge/src/frb_generated.rs
+            flutter_ui/lib/src/rust/
+          if-no-files-found: error
+
+      # --- The installer ---------------------------------------------------------
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $version = "${{ inputs.version }}".TrimStart('v')
+          & packaging/windows/build-installer.ps1 -Version $version
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-installer
+          path: packaging/windows/dist/*.exe
+          if-no-files-found: error
+
+      # --- The tests for the two patches ------------------------------------------
+      # After the upload on purpose: a failing test should not cost you the
+      # installer, and it still turns the run red so it is not missed. They run
+      # even when the build failed, because their output then says which half
+      # broke.
+      - name: "test: decoder pre-roll fix (lumit-media)"
+        if: success() || failure()
+        run: cargo test -p lumit-media
+      - name: "test: graphics card summary (lumit-gpu)"
+        if: success() || failure()
+        run: "cargo test -p lumit-gpu adapter::"
+      - name: "test: graphics card comparison (Dart)"
+        if: success() || failure()
+        working-directory: flutter_ui
+        run: flutter test test/graphics_adapters_test.dart
