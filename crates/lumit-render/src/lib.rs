@@ -121,6 +121,8 @@ pub use lumit_media::DecodedFrame;
 /// bridge answers Settings' VRAM ceiling with it and would otherwise need a
 /// direct `lumit-gpu` dependency to ask.
 pub use lumit_gpu::video_memory_bytes;
+// The graphics card readout (Settings, and the Viewer's same-card check).
+pub use lumit_gpu::{adapters, engine_adapter, AdapterKind, AdapterSummary};
 
 /// The Viewer's display view, re-exported for the same reason: the bridge sets
 /// it on [`HeadlessRenderer::set_display_view`] and would otherwise need a

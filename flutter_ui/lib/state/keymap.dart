@@ -319,6 +319,14 @@ class KeymapState extends ChangeNotifier {
       return null;
     } on AnyhowException catch (e) {
       return e.message;
+    } catch (e) {
+      // `keymap_rebind` refuses with the bridge's own typed error
+      // (`BridgeError::InvalidKeyChord`), which frb raises as its generated
+      // exception class, not as an [AnyhowException]. Catching only the latter
+      // let a refusal escape the capture cell as an unhandled async error, so
+      // the row showed nothing at all where this method promises the engine's
+      // words.
+      return '$e';
     }
   }
 
@@ -349,6 +357,10 @@ class KeymapState extends ChangeNotifier {
       return null;
     } on AnyhowException catch (e) {
       return e.message;
+    } catch (e) {
+      // The same typed-error gap as [rebind]: whatever the bridge throws, the
+      // import dialogue shows it rather than losing it.
+      return '$e';
     }
   }
 

@@ -54,6 +54,7 @@ import '../l10n/strings.dart';
 import '../state/addons.dart';
 import '../state/external_links.dart';
 import '../state/file_dialogs.dart';
+import '../state/graphics_adapters.dart';
 import '../state/keymap.dart';
 import '../state/settings.dart';
 import '../state/updates.dart';
@@ -233,6 +234,13 @@ class _SettingsWindowState extends State<_SettingsWindow> {
   })? _perf;
   Timer? _perfTimer;
 
+  /// Which graphics card the Viewer and the interface are drawn on, read when
+  /// the Preview and cache page comes forward. Not part of [_pollPerf]'s
+  /// once-a-second sweep: listing adapters asks the driver, and the answer does
+  /// not change while the page is open. Null until the first read lands, and
+  /// the section is simply absent until then rather than claiming "not known".
+  GraphicsAdapterReport? _graphics;
+
   /// What the machine can play through, captured when the Audio page comes
   /// forward and again after a change. Asking the sound system is a real call,
   /// so it is never made from `build()` — same rule as the cache readouts
@@ -269,7 +277,10 @@ class _SettingsWindowState extends State<_SettingsWindow> {
   void _showPage(SettingsPage page) {
     setState(() {
       _page = page;
-      if (page == SettingsPage.previewAndCache) _pollPerf();
+      if (page == SettingsPage.previewAndCache) {
+        _pollPerf();
+        _readGraphicsAdapters();
+      }
       // Re-read rather than cache for the session: a device can be plugged in
       // while Settings is open, and stepping off the page and back is the
       // obvious way to ask again.
@@ -293,6 +304,15 @@ class _SettingsWindowState extends State<_SettingsWindow> {
       _perfTimer?.cancel();
       _perfTimer = null;
     }
+  }
+
+  /// Read both graphics cards and redraw the page when they arrive. Re-read on
+  /// every entry rather than kept for the session: the answer to "which card?"
+  /// changes after the Windows graphics setting is changed and Lumit restarted,
+  /// and stepping off the page and back is the obvious way to look again.
+  Future<void> _readGraphicsAdapters() async {
+    final report = await readGraphicsAdapters();
+    if (mounted) setState(() => _graphics = report);
   }
 
   KeymapState? _keymapState() =>
@@ -2374,18 +2394,27 @@ class _SettingsWindowState extends State<_SettingsWindow> {
       for (final group in groups)
         settingsSection(t, group.label, [
           for (final binding in group.bindings)
-            settingsRow(
-              t,
-              binding.description,
-              '',
-              _ChordCell(
-                key: ValueKey('keymap-chord-${binding.context.name}-'
-                    '${binding.action}'),
-                binding: binding,
-                keymap: km,
-                onChanged: () {
-                  if (mounted) setState(() {});
-                },
+            // Keyed by the action, not left to its position. The key on the
+            // cell below only distinguishes it among the cell's own siblings;
+            // the rows themselves were matched by index, so any change to the
+            // table's order handed one action's row — and a capture in
+            // progress — to whichever action now stood in that place.
+            KeyedSubtree(
+              key: ValueKey('keymap-row-${binding.context.name}-'
+                  '${binding.action}'),
+              child: settingsRow(
+                t,
+                binding.description,
+                '',
+                _ChordCell(
+                  key: ValueKey('keymap-chord-${binding.context.name}-'
+                      '${binding.action}'),
+                  binding: binding,
+                  keymap: km,
+                  onChanged: () {
+                    if (mounted) setState(() {});
+                  },
+                ),
               ),
             ),
         ]),
@@ -2633,6 +2662,7 @@ class _SettingsWindowState extends State<_SettingsWindow> {
           ),
         ],
       ),
+      _graphicsCard(t),
       _diskCache(t, ui),
       // What the governor says about all of it. Above the memory report
       // because it is the answer rather than the evidence: the report weighs
@@ -2989,6 +3019,91 @@ class _SettingsWindowState extends State<_SettingsWindow> {
 
   /// Bytes as a person reads them — MB up to a gigabyte, GB above, one
   /// decimal so 85.4 GB does not print as 85.
+  /// Which card the Viewer is drawn on, which card the interface is, and whether
+  /// they are the same one.
+  ///
+  /// **Why it is on this page.** A Viewer that never shows a picture on a
+  /// laptop is, more often than anything else, the two sides on different
+  /// cards: the texture registers, frames are announced, and nothing appears.
+  /// This is the Viewer's page, and the one place that can say so in words.
+  (String, List<Widget?>) _graphicsCard(LumitTheme t) {
+    final report = _graphics;
+    if (report == null) {
+      return (l10n.settingsGroupGraphicsCard, const <Widget?>[]);
+    }
+    final engine = engineAdapterOf(report.engine);
+    final ui = report.ui;
+    final muted = t.small.copyWith(color: t.textMuted);
+    final others = [
+      for (final a in report.engine)
+        if (!a.engine) a.name,
+    ];
+
+    return (
+      l10n.settingsGroupGraphicsCard,
+      [
+        _row(
+          t,
+          l10n.settingsAdapterViewer,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(engine?.name ?? l10n.settingsAdapterNotKnown,
+                  key: const ValueKey('settings-adapter-viewer'),
+                  style: t.small),
+              if (engine != null)
+                Text(
+                  engine.driver.isEmpty
+                      ? _adapterKindLabel(engine.kind)
+                      : '${_adapterKindLabel(engine.kind)} · ${engine.driver}',
+                  key: const ValueKey('settings-adapter-viewer-kind'),
+                  style: muted,
+                ),
+            ],
+          ),
+          description: others.isEmpty
+              ? ''
+              : l10n.settingsAdaptersAlsoPresent(others.join(', ')),
+        ),
+        _row(
+          t,
+          l10n.settingsAdapterInterface,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(ui?.name ?? l10n.settingsAdapterNotKnown,
+                  key: const ValueKey('settings-adapter-interface'),
+                  style: t.small),
+              if (report.agreement != AdapterAgreement.unknown)
+                Text(
+                  report.agreement == AdapterAgreement.same
+                      ? l10n.settingsAdapterSameCard
+                      : l10n.settingsAdapterDifferentCard,
+                  key: const ValueKey('settings-adapter-agreement'),
+                  style: report.agreement == AdapterAgreement.same
+                      ? muted
+                      : t.small,
+                ),
+            ],
+          ),
+          description: report.agreement == AdapterAgreement.different
+              ? l10n.settingsHelpAdaptersDifferent
+              : '',
+        ),
+      ],
+    );
+  }
+
+  String _adapterKindLabel(BridgeAdapterKind kind) => switch (kind) {
+        BridgeAdapterKind.integrated => l10n.settingsAdapterKindIntegrated,
+        BridgeAdapterKind.dedicated => l10n.settingsAdapterKindDedicated,
+        BridgeAdapterKind.virtual => l10n.settingsAdapterKindVirtual,
+        BridgeAdapterKind.software => l10n.settingsAdapterKindSoftware,
+        BridgeAdapterKind.other => l10n.settingsAdapterKindOther,
+      };
+
   /// One tier of the governor's ledger: what it holds against its ceiling, the
   /// state that puts it in, the most it ever held at once, and — only when
   /// there has been one — how many reservations it has refused.

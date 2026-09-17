@@ -1,9 +1,14 @@
 #include "viewer_texture_bridge.h"
 
+#include <dxgi.h>
+#include <wrl/client.h>
+
 #include <memory>
 #include <string>
 #include <utility>
 #include <variant>
+
+#include "utils.h"
 
 namespace {
 
@@ -35,7 +40,8 @@ uint64_t GetU64(const flutter::EncodableMap* map, const char* key) {
 ViewerTextureBridge::ViewerTextureBridge(
     FlutterDesktopPluginRegistrarRef registrar_ref)
     : registrar_(
-          std::make_unique<flutter::PluginRegistrarWindows>(registrar_ref)) {
+          std::make_unique<flutter::PluginRegistrarWindows>(registrar_ref)),
+      registrar_ref_(registrar_ref) {
   textures_ = registrar_->texture_registrar();
   channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
       registrar_->messenger(), "lumit/viewer_texture",
@@ -44,6 +50,57 @@ ViewerTextureBridge::ViewerTextureBridge(
       [this](const flutter::MethodCall<flutter::EncodableValue>& call,
              std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
                  result) { HandleMethodCall(call, std::move(result)); });
+
+  adapter_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          registrar_->messenger(), "lumit/graphics_adapter",
+          &flutter::StandardMethodCodec::GetInstance());
+  adapter_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                 result) {
+        if (call.method_name() == "interfaceAdapter") {
+          result->Success(InterfaceAdapter());
+        } else {
+          result->NotImplemented();
+        }
+      });
+}
+
+flutter::EncodableValue ViewerTextureBridge::InterfaceAdapter() const {
+  // The embedder hands back a reference it has AddRef'd ("the caller is
+  // responsible for releasing the adapter", flutter_windows.h), so it is
+  // attached — not copied — into the ComPtr, which releases it once.
+  IDXGIAdapter* raw = nullptr;
+  if (registrar_ref_ == nullptr ||
+      !FlutterDesktopPluginRegistrarGetGraphicsAdapter(registrar_ref_, &raw) ||
+      raw == nullptr) {
+    return flutter::EncodableValue();
+  }
+  Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
+  adapter.Attach(raw);
+
+  DXGI_ADAPTER_DESC desc = {};
+  if (FAILED(adapter->GetDesc(&desc))) {
+    return flutter::EncodableValue();
+  }
+  const uint64_t luid =
+      (static_cast<uint64_t>(static_cast<uint32_t>(desc.AdapterLuid.HighPart))
+       << 32) |
+      static_cast<uint64_t>(desc.AdapterLuid.LowPart);
+
+  flutter::EncodableMap map;
+  map[flutter::EncodableValue("name")] =
+      flutter::EncodableValue(Utf8FromUtf16(desc.Description));
+  map[flutter::EncodableValue("vendorId")] =
+      flutter::EncodableValue(static_cast<int64_t>(desc.VendorId));
+  map[flutter::EncodableValue("deviceId")] =
+      flutter::EncodableValue(static_cast<int64_t>(desc.DeviceId));
+  map[flutter::EncodableValue("luid")] =
+      flutter::EncodableValue(static_cast<int64_t>(luid));
+  map[flutter::EncodableValue("dedicatedVideoMemory")] =
+      flutter::EncodableValue(static_cast<int64_t>(desc.DedicatedVideoMemory));
+  return flutter::EncodableValue(map);
 }
 
 ViewerTextureBridge::~ViewerTextureBridge() {

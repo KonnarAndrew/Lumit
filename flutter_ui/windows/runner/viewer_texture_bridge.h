@@ -72,6 +72,16 @@ class ViewerTextureBridge {
     std::atomic<uint64_t> presented{0};
   };
 
+  // What the adapter the *interface* draws on is, for the
+  // 'lumit/graphics_adapter' channel: {name, vendorId, deviceId, luid,
+  // dedicatedVideoMemory}, or null when the embedder will not say.
+  //
+  // The engine names its own card through the bridge; this is the other half.
+  // A Viewer texture made on one card cannot be opened on another, and on a
+  // laptop the two sides can land on different cards without anything failing
+  // loudly — comparing the two answers is how that case is seen.
+  flutter::EncodableValue InterfaceAdapter() const;
+
   void HandleMethodCall(
       const flutter::MethodCall<flutter::EncodableValue>& call,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
@@ -89,6 +99,11 @@ class ViewerTextureBridge {
 
   std::unique_ptr<flutter::PluginRegistrarWindows> registrar_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> channel_;
+  // Kept raw as well as wrapped: the adapter query is a C API on the registrar
+  // itself, with no C++ wrapper to go through.
+  FlutterDesktopPluginRegistrarRef registrar_ref_ = nullptr;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      adapter_channel_;
   flutter::TextureRegistrar* textures_ = nullptr;  // owned by registrar_
   std::map<int64_t, std::unique_ptr<Entry>> entries_;
 };

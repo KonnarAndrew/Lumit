@@ -1027,43 +1027,13 @@ impl GpuContext {
 
     /// Headless context (tests, future CLI export).
     pub fn headless() -> Result<Self, GpuError> {
-        // The backend is pinned on all three platforms, in every build. Two
-        // reasons: the zero-copy Viewer hand-off reaches through wgpu to a
-        // *specific* backend's device, and with the CPU read-back transport
-        // gone there is no build left that wants a mixed-backend instance.
-        // Pinning also fixes the hybrid iGPU+dGPU case described below.
-        //
-        // `from_env_or_default` supplies the rest of the descriptor (flags, the
-        // DX12 shader compiler, the GLES minor version) from `WGPU_*`, so those
-        // stay tunable — but `backends` is set explicitly *after* it, so the pin
-        // wins and `WGPU_BACKEND` cannot move it. That is intended: an
-        // environment variable must not be able to break the Viewer.
-        #[cfg(windows)]
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::DX12,
-            ..wgpu::InstanceDescriptor::from_env_or_default()
-        });
-        // On a hybrid iGPU+dGPU box (e.g. AMD + Nvidia) mixing GL and Vulkan into one
-        // enumeration makes PowerPreference::HighPerformance pick unreliably (commonly
-        // picking the AMD iGPU driving the display), which can cause VRAM exhaustion
-        // during command submission. Pinning Vulkan prevents that.
-        #[cfg(target_os = "linux")]
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::VULKAN,
-            ..wgpu::InstanceDescriptor::from_env_or_default()
-        });
-        #[cfg(target_os = "macos")]
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::METAL,
-            ..wgpu::InstanceDescriptor::from_env_or_default()
-        });
-        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::from_env_or_default());
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            ..Default::default()
-        }))
-        .ok_or(GpuError::NoAdapter)?;
+        // One definition of the backend pin and of the adapter request, shared
+        // with the Settings readout so the card it names is the card this opens
+        // (see `adapter::pinned_instance` for why the backend is pinned).
+        let instance = crate::adapter::pinned_instance();
+        let adapter =
+            crate::adapter::request_engine_adapter(&instance).ok_or(GpuError::NoAdapter)?;
+        crate::adapter::record_in_use(&adapter.get_info());
         // The one moment an adapter is in hand, which is the only place Vulkan
         // will say how big the card is (see [`video_memory_bytes`]).
         #[cfg(all(target_os = "linux", feature = "shared-texture-linux"))]
@@ -3183,6 +3153,9 @@ mod tests {
     }
 }
 
+/// Which graphics card the engine draws on, for the Settings readout and the
+/// Viewer's same-card check.
+pub mod adapter;
 pub mod composite;
 pub mod fx;
 pub mod oklab;
@@ -3210,4 +3183,5 @@ pub use composite::{
     camera_matrix, concat_place, place_matrix, scaled_size, Blend, CompositeLayer, Compositor,
     MatteInput, MbSample, Region,
 };
+pub use adapter::{adapter_in_use, adapters, engine_adapter, AdapterKind, AdapterSummary};
 pub use glam::Mat4;

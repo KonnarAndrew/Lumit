@@ -265,6 +265,22 @@ impl VideoDecoder {
     /// form both taps convert from — hardware frames transferred to system
     /// memory and repacked, exactly as they were before either tap existed.
     fn frame_exact(&mut self, n: usize) -> Result<AVFrame, MediaError> {
+        let result = self.frame_exact_positioned(n);
+        if result.is_err() {
+            // **A failed frame leaves the decoder somewhere unknown.** It may
+            // have consumed frames past `n`, or be part-way through a packet,
+            // while `next_sequential` still names where it was *before*. The
+            // next request trusted that, skipped its seek, and decoded forward
+            // from the wrong place — so one bad frame failed the ones after it
+            // too, and the Pool keeps this decoder for the whole session.
+            // Forgetting the position makes the next request seek, which is
+            // the one state that is always true.
+            self.next_sequential = None;
+        }
+        result
+    }
+
+    fn frame_exact_positioned(&mut self, n: usize) -> Result<AVFrame, MediaError> {
         let want_pts = self
             .index
             .pts_of_frame(n)
@@ -734,6 +750,37 @@ mod tests {
 
         assert_eq!(frame.format, PixelFormat::Srgb8);
         assert_eq!(frame.rgba.len(), (frame.width * frame.height) as usize * 4);
+    }
+
+    /// **The regression.** A clip trimmed by stream copy carries edit-list
+    /// pre-roll packets the decoder never outputs. Indexed as frames, they made
+    /// frame 0 unreachable ("seek overshot") and shifted every other frame.
+    /// Every frame of the index must decode, forwards and when scrubbed to.
+    #[test]
+    fn a_stream_copy_trim_decodes_every_frame_from_the_first() {
+        use crate::index::tests_support::trimmed_copy_fixture;
+        let dir = tempfile::tempdir().unwrap();
+        let Some(file) = trimmed_copy_fixture(dir.path()) else {
+            return;
+        };
+        let src = MediaSource::file(&file);
+        let index = build_frame_index(&src).unwrap();
+        assert!(
+            index.entries.first().is_some_and(|e| e.pts >= 0),
+            "the index starts on pre-roll: {:?}",
+            index.entries.first()
+        );
+        let count = index.frame_count();
+        let mut dec = VideoDecoder::open_with(&src, index, false).unwrap();
+        for n in 0..count {
+            dec.frame_rgba(n, Some(64))
+                .unwrap_or_else(|e| panic!("frame {n} of {count}: {e}"));
+        }
+        // And out of order, the way a scrub asks.
+        for n in [0, count - 1, 1, count / 2, 0] {
+            dec.frame_rgba(n, Some(64))
+                .unwrap_or_else(|e| panic!("scrubbed frame {n}: {e}"));
+        }
     }
 
     /// The luma tap is the same picture, at the same size, seeking the same

@@ -296,29 +296,44 @@ impl FromStr for Chord {
     type Err = ChordError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        // **The `+` key is spelled with the separator.** `+` alone and
+        // `Shift++` are what [`fmt::Display`] writes for it, and a plain
+        // split on `+` read those as an empty key (`+`) and an empty modifier
+        // (`Shift++`), so the numpad plus could be bound in the table, written
+        // to the keymap file, and then never read back. The trailing `+` is
+        // the key whenever it follows another `+` or stands alone; everything
+        // before the last separator is modifiers.
+        let (mods_text, key_text) = if s == "+" {
+            ("", "+")
+        } else if let Some(before) = s.strip_suffix("++") {
+            (before, "+")
+        } else {
+            match s.rsplit_once('+') {
+                Some((before, key)) => (before, key),
+                None => ("", s),
+            }
+        };
         let mut mods = Modifiers::default();
-        let mut key: Option<String> = None;
-        let tokens: Vec<&str> = s.split('+').collect();
-        let last = tokens.len().saturating_sub(1);
-        for (i, tok) in tokens.iter().enumerate() {
-            let t = tok.trim();
-            if i == last {
-                // The final token is always the key, even if it spells a
-                // modifier word (so `Shift` alone is the Shift *key*).
-                key = Some(normalise_key(t));
-                break;
-            }
-            match t.to_ascii_lowercase().as_str() {
-                "mod" | "cmd" | "command" | "ctrl" | "control" | "primary" => mods.primary = true,
-                "shift" => mods.shift = true,
-                "alt" | "option" | "opt" => mods.alt = true,
-                other => return Err(ChordError::UnknownModifier(other.to_string())),
+        if !mods_text.trim().is_empty() {
+            for tok in mods_text.split('+') {
+                match tok.trim().to_ascii_lowercase().as_str() {
+                    "mod" | "cmd" | "command" | "ctrl" | "control" | "primary" => {
+                        mods.primary = true;
+                    }
+                    "shift" => mods.shift = true,
+                    "alt" | "option" | "opt" => mods.alt = true,
+                    other => return Err(ChordError::UnknownModifier(other.to_string())),
+                }
             }
         }
-        match key {
-            Some(k) if !k.is_empty() => Ok(Chord { mods, key: k }),
-            _ => Err(ChordError::Empty),
+        // The last part is always the key, even if it spells a modifier word
+        // (so `Shift` alone is the Shift *key*).
+        let key = normalise_key(key_text);
+        if key.is_empty() {
+            return Err(ChordError::Empty);
         }
+        Ok(Chord { mods, key })
     }
 }
 
@@ -1030,6 +1045,38 @@ mod tests {
 
     fn chord(s: &str) -> Chord {
         s.parse().unwrap()
+    }
+
+    /// The `+` key round-trips. It is spelled with the separator, so a plain
+    /// split used to read `+` as no key and `Shift++` as an empty modifier:
+    /// the numpad plus could be pressed into the table and then failed to
+    /// parse, in the table and in the saved keymap file alike.
+    #[test]
+    fn the_plus_key_parses_and_round_trips() {
+        for text in ["+", "Shift++", "Mod++", "Mod+Alt+Shift++"] {
+            let c = chord(text);
+            assert_eq!(c.key, "+", "{text}");
+            assert_eq!(c.to_string(), text, "{text} did not round-trip");
+        }
+        assert!(chord("Shift++").mods.shift);
+        assert!(!chord("+").mods.shift);
+    }
+
+    /// The rewrite for `+` leaves every other spelling reading as it did.
+    #[test]
+    fn chords_without_a_plus_key_parse_as_before() {
+        assert_eq!(chord("mod+d"), chord("Mod+D"));
+        assert_eq!(chord("mod+shift+d"), chord("Shift+Mod+D"));
+        assert_eq!(chord(" Ctrl + Alt + F9 ").to_string(), "Mod+Alt+F9");
+        assert_eq!(chord("Shift").key, "Shift", "a modifier word alone is the key");
+        assert_eq!(chord("*").key, "*");
+        assert_eq!(chord("Shift+8").to_string(), "Shift+8");
+        assert_eq!("".parse::<Chord>(), Err(ChordError::Empty));
+        assert_eq!("Mod+".parse::<Chord>(), Err(ChordError::Empty));
+        assert_eq!(
+            "Hyper+K".parse::<Chord>(),
+            Err(ChordError::UnknownModifier("hyper".into()))
+        );
     }
 
     #[test]

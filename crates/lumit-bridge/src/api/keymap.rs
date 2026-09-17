@@ -179,16 +179,49 @@ fn row(km: &Keymap, context: KeyContext, action: &ActionId) -> BridgeKeyBinding 
 #[frb(sync)]
 #[must_use]
 pub fn keymap_groups() -> Vec<BridgeKeymapGroup> {
+    // Row order comes from the shipped keymap, not the live one. Read before the
+    // lock is taken: building the default touches nothing the lock guards.
+    let shipped = lumit_keymap::default_keymap();
     with_keymap(|km| {
         KeyContext::ALL
             .iter()
             .map(|context| {
-                // One row per action in this context, in the map's own order,
-                // which is the order docs/07 §15 lists them.
+                // One row per action in this context, in the order docs/07 §15
+                // lists them — which is the **shipped** map's order, not the
+                // live map's.
+                //
+                // The live map is the wrong thing to order by, because editing
+                // it moves things: `rebind_action` removes an action's binding
+                // and `bind` pushes the new one on the end. Ordered by the live
+                // map, the row a user had just rebound jumped to the bottom of
+                // its section and every row under it moved up one — so the row
+                // under the pointer now named a *different* action, showing
+                // that action's unchanged chord, and the rebind looked as if it
+                // had never happened.
+                //
+                // And an action with no binding at all used to have no row:
+                // clearing a shortcut with Backspace, or pressing a key another
+                // action owned (which leaves the old owner unbound), made the
+                // row vanish, with nothing left on the page to bind it again
+                // from. Every action the shipped map, the live map or the
+                // deliberate-unbind list knows about now has a row; one with no
+                // chord reads "Not set".
                 let mut actions: Vec<ActionId> = Vec::new();
-                for b in &km.bindings {
-                    if b.context == *context && !actions.contains(&b.action) {
-                        actions.push(b.action.clone());
+                let known = shipped
+                    .bindings
+                    .iter()
+                    .chain(km.bindings.iter())
+                    .filter(|b| b.context == *context)
+                    .map(|b| &b.action)
+                    .chain(
+                        km.unbound
+                            .iter()
+                            .filter(|(c, _)| c == context)
+                            .map(|(_, a)| a),
+                    );
+                for action in known {
+                    if !actions.contains(action) {
+                        actions.push(action.clone());
                     }
                 }
                 BridgeKeymapGroup {

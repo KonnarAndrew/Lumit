@@ -343,6 +343,92 @@ pub fn thaw_cursor() {
     }
 }
 
+/// What kind of card an adapter is — the bridge mirror of
+/// `lumit_gpu::AdapterKind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BridgeAdapterKind {
+    Integrated,
+    Dedicated,
+    Virtual,
+    Software,
+    Other,
+}
+
+impl From<lumit_render::AdapterKind> for BridgeAdapterKind {
+    fn from(kind: lumit_render::AdapterKind) -> Self {
+        match kind {
+            lumit_render::AdapterKind::Integrated => BridgeAdapterKind::Integrated,
+            lumit_render::AdapterKind::Dedicated => BridgeAdapterKind::Dedicated,
+            lumit_render::AdapterKind::Virtual => BridgeAdapterKind::Virtual,
+            lumit_render::AdapterKind::Software => BridgeAdapterKind::Software,
+            lumit_render::AdapterKind::Other => BridgeAdapterKind::Other,
+        }
+    }
+}
+
+/// One graphics adapter the engine can see.
+#[frb(non_opaque)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeGraphicsAdapter {
+    pub name: String,
+    /// PCI vendor id — compared against the id the Flutter runner reads from
+    /// the adapter the interface draws on.
+    pub vendor_id: u32,
+    /// PCI device id, the other half of that comparison.
+    pub device_id: u32,
+    pub kind: BridgeAdapterKind,
+    /// "Dx12", "Vulkan" or "Metal".
+    pub backend: String,
+    /// Driver name and version where the driver reports them, else empty.
+    pub driver: String,
+    /// Whether this is the adapter the engine draws on.
+    pub engine: bool,
+}
+
+/// Every graphics adapter the engine can see, the one it draws on marked.
+///
+/// **Why this exists.** On a laptop with both an integrated and a dedicated
+/// card, the engine asks for the dedicated one while the interface is given
+/// Windows' default, and a Viewer texture made on one card cannot be opened on
+/// the other: the Viewer stays empty and nothing reports an error. Naming both
+/// cards is the only way to see that from outside a debugger.
+///
+/// Before any renderer has opened, the engine's entry is the adapter it *will*
+/// open, requested the same way (`lumit_gpu::engine_adapter`). Not `sync`:
+/// enumerating adapters asks the driver, which is a real call and has no place
+/// on the frame the Settings page is drawn in. An adapter the engine uses that
+/// the enumeration somehow missed is still listed, first, so the answer to
+/// "which card?" is never an empty page.
+#[must_use]
+pub fn graphics_adapters() -> Vec<BridgeGraphicsAdapter> {
+    let engine = lumit_render::engine_adapter();
+    let mut found_engine = false;
+    let mut out: Vec<BridgeGraphicsAdapter> = lumit_render::adapters()
+        .into_iter()
+        .map(|summary| {
+            let is_engine = !found_engine && engine.as_ref() == Some(&summary);
+            found_engine |= is_engine;
+            bridge_adapter(summary, is_engine)
+        })
+        .collect();
+    if let (false, Some(summary)) = (found_engine, engine) {
+        out.insert(0, bridge_adapter(summary, true));
+    }
+    out
+}
+
+fn bridge_adapter(summary: lumit_render::AdapterSummary, engine: bool) -> BridgeGraphicsAdapter {
+    BridgeGraphicsAdapter {
+        name: summary.name,
+        vendor_id: summary.vendor_id,
+        device_id: summary.device_id,
+        kind: summary.kind.into(),
+        backend: summary.backend,
+        driver: summary.driver,
+        engine,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -64,7 +64,12 @@ impl FrameIndex {
     // ---- sidecar cache -------------------------------------------------
 
     pub fn cache_path(dir: &Path, fp: &Fingerprint) -> PathBuf {
-        dir.join(format!("{}.kidx", fp.cache_key()))
+        // `v2`: indexes written before edit-list pre-roll packets were skipped
+        // (see [`build_frame_index`]) name frames the decoder never outputs,
+        // and their fingerprint still matches the file — so without a new name
+        // every clip already imported would keep loading its broken index for
+        // ever. Bump this whenever what an index *means* changes.
+        dir.join(format!("{}.v2.kidx", fp.cache_key()))
     }
 
     pub fn save_to(&self, dir: &Path) -> Result<PathBuf, MediaError> {
@@ -195,6 +200,25 @@ pub fn build_frame_index(src: impl Into<MediaSource>) -> Result<FrameIndex, Medi
         if packet.stream_index != stream_index {
             continue;
         }
+        // **Edit-list pre-roll is not a frame of the clip.** An MP4/MOV cut by
+        // stream copy (LosslessCut, `ffmpeg -ss … -c copy`, most "trim" buttons)
+        // starts mid-GOP: the container keeps the packets back to the previous
+        // keyframe, because the decoder needs them as references, and its edit
+        // list says where the clip really starts. The demuxer marks those
+        // packets DISCARD, and libavcodec decodes them but never outputs them.
+        //
+        // Indexing them anyway gave the index N phantom frames at negative pts.
+        // Frame 0 then asked for a pts no decoded frame carries — "seek
+        // overshot", a blank Viewer on the frame an import lands on — and every
+        // later frame showed the picture N frames before the one asked for.
+        //
+        // The keyframe is usually among the skipped packets, so the first kept
+        // entry may carry no key flag. That is still correct:
+        // `nearest_keyframe_at_or_before` answers 0, and a BACKWARD seek to
+        // frame 0's pts lands on the real keyframe before it.
+        if packet.flags & ffi::AV_PKT_FLAG_DISCARD as i32 != 0 {
+            continue;
+        }
         let pts = if packet.pts != ffi::AV_NOPTS_VALUE {
             packet.pts
         } else {
@@ -281,6 +305,24 @@ pub mod tests_support {
                 "-pix_fmt",
                 "yuv420p",
             ])
+            .arg(&out)
+            .status()
+            .ok()?;
+        status.success().then_some(out)
+    }
+
+    /// The [`fixture`] cut from 0.55 s by stream copy — no re-encode — which
+    /// is what LosslessCut and most "trim" tools produce. The cut is not on a
+    /// keyframe (GOP 30 at 60 fps puts one at 0.5 s), so the MP4 keeps three
+    /// pre-roll packets flagged DISCARD and an edit list starting after them.
+    pub fn trimmed_copy_fixture(dir: &Path) -> Option<PathBuf> {
+        let bin = ffmpeg_bin()?;
+        let source = fixture(dir)?;
+        let out = dir.join("trimmed_copy_fixture.mp4");
+        let status = Command::new(bin)
+            .args(["-v", "error", "-y", "-ss", "0.55", "-i"])
+            .arg(&source)
+            .args(["-c", "copy"])
             .arg(&out)
             .status()
             .ok()?;

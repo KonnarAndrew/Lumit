@@ -45,6 +45,7 @@ import 'package:lumit_flutter/state/clipboard.dart';
 import 'package:lumit_flutter/state/comp_time.dart';
 import 'package:lumit_flutter/state/dock.dart';
 import 'package:lumit_flutter/state/dropper.dart';
+import 'package:lumit_flutter/state/graphics_adapters.dart';
 import 'package:lumit_flutter/state/viewer_views.dart';
 import 'package:lumit_flutter/state/keymap.dart';
 import 'package:lumit_flutter/state/animated_mask_paths.dart';
@@ -2046,7 +2047,22 @@ class LumitUiState extends ChangeNotifier {
   void _showSharedTexture(BridgeSharedFrameInfo f) {
     controllerFor(f.view)
         .ensureRegistered(f.handle.toInt(), f.width, f.height)
-        .then((id) => _adoptTexture(id, f.frame.toInt(), f.view));
+        .then((id) {
+      // The first texture is the moment both cards are real rather than
+      // predicted, so it is when the Viewer's one silent failure can be caught:
+      // an engine and an interface on different cards, which registers fine and
+      // then never shows a picture. Once a session, and Windows only — the
+      // check returns at once everywhere else and on every later frame.
+      if (id != null) {
+        unawaited(checkGraphicsAdaptersOnce(
+          onDifferent: (ui, engine) => _app.postNotice(
+            l10n.adaptersDifferentNotice(engine.name, ui.name),
+            error: true,
+          ),
+        ));
+      }
+      _adoptTexture(id, f.frame.toInt(), f.view);
+    });
   }
 
   /// Which texture each view is drawing, by the engine's view id. A view with

@@ -177,6 +177,67 @@ void main() {
       );
     });
 
+    /// **The regression behind "it never remaps".** The engine used to hand the
+    /// table back in its live list order, and a rebind moves the action to the
+    /// end of that list — so the row jumped to the bottom of its section, every
+    /// row under it moved up one, and the place the user was looking at now
+    /// named a different action with its old chord. The rebind had worked;
+    /// the table made it look as though it had not.
+    ///
+    /// F5 is also what another app-wide action may hold, which is the second
+    /// half of the old fault: that action lost its binding and, with no binding,
+    /// lost its row. Both show up as the order below changing.
+    testWidgets('a rebound row stays where it was in the table',
+        (tester) async {
+      final p = await openKeymapPage(tester);
+      List<String> globalOrder() => p.uiState.keymap.groups
+          .firstWhere((g) => g.context == BridgeKeyContext.global)
+          .bindings
+          .map((b) => b.action)
+          .toList();
+      final before = globalOrder();
+
+      final cell = find.byKey(const ValueKey('keymap-chord-global-file.save'));
+      await reveal(tester, cell);
+      await tester.tap(cell);
+      await tester.pumpAndSettle();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.f5);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.f5);
+      await settleFrb(
+        tester,
+        until: () => p.uiState.keymap.groups
+            .expand((g) => g.bindings)
+            .any((b) => b.action == 'file.save' && b.chord == 'F5'),
+      );
+
+      expect(globalOrder(), before,
+          reason: 'rebinding changes a chord, never which row is where');
+    });
+
+    /// Clearing a shortcut leaves a row to bind it again from. An action with
+    /// no binding used to have no row at all, so Backspace made it vanish from
+    /// the page until the whole keymap was reset.
+    testWidgets('clearing a shortcut keeps its row, reading Not set',
+        (tester) async {
+      final p = await openKeymapPage(tester);
+      final cell = find.byKey(const ValueKey('keymap-chord-global-file.save'));
+      await reveal(tester, cell);
+      await tester.tap(cell);
+      await tester.pumpAndSettle();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.backspace);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.backspace);
+      await settleFrb(
+        tester,
+        until: () => p.uiState.keymap.groups
+            .expand((g) => g.bindings)
+            .any((b) => b.action == 'file.save' && b.chord.isEmpty),
+      );
+
+      await reveal(tester, cell);
+      expect(find.descendant(of: cell, matching: find.text('Not set')),
+          findsOneWidget);
+    });
+
     /// Reset is per row: the shipped chord comes back and nothing else moves.
     testWidgets('reset puts a row back to the shipped chord', (tester) async {
       final p = await openKeymapPage(tester);

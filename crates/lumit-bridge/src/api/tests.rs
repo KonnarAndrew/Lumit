@@ -9080,13 +9080,69 @@ fn an_unbound_action_keeps_its_row_and_loses_its_chord() {
         keymap_lookup(BridgeKeyContext::Global, "Mod+S".into()),
         None
     );
-    // The row is gone from the table because the map no longer carries it;
-    // the page redraws unbound rows from the preset's action list, so this
-    // asserts the contract the page relies on: nothing else moved.
+    // The row is still in the table, with no chord. This used to assert only
+    // that *other* rows survived, on the belief that the Settings page redrew
+    // unbound rows from the preset's action list. It never did: the page draws
+    // exactly what this returns, so an unbound action vanished from Settings
+    // with nothing left to rebind it from.
+    assert!(
+        after
+            .iter()
+            .flat_map(|g| &g.bindings)
+            .any(|b| b.action == "file.save" && b.chord.is_empty()),
+        "the unbound row is still drawn, reading Not set"
+    );
     assert!(after
         .iter()
         .flat_map(|g| &g.bindings)
         .any(|b| b.action == "edit.undo" && b.chord == "Mod+Z"));
+}
+
+/// **The regression behind "rebinding never works".** A rebind removes the
+/// action's binding and pushes the new one on the end of the live list, and the
+/// table used to be drawn in that list's order — so a rebound row jumped to the
+/// bottom of its section and every row below moved up one, leaving a different
+/// action under the pointer showing its old chord. And a chord taken from
+/// another action unbound that action, which then had no row at all.
+///
+/// Both show up here as the row order changing. It must not: a rebind changes
+/// what a row says, never where rows are.
+#[test]
+fn rebinding_never_moves_or_removes_a_row() {
+    use crate::api::keymap::*;
+    let _guard = keymap_test();
+    let order = |groups: &[BridgeKeymapGroup]| -> Vec<(BridgeKeyContext, String)> {
+        groups
+            .iter()
+            .flat_map(|g| g.bindings.iter().map(|b| (b.context, b.action.clone())))
+            .collect()
+    };
+    let before = order(&keymap_groups());
+
+    // Take the chord another app-wide action holds: its row must stay too.
+    let taken_from = keymap_lookup(BridgeKeyContext::Global, "Mod+Z".into())
+        .expect("the shipped map binds Mod+Z");
+    let after = keymap_rebind(
+        BridgeKeyContext::Global,
+        "file.save".into(),
+        "Mod+Z".into(),
+    )
+    .expect("a valid chord is taken");
+
+    assert_eq!(order(&after), before, "no row moved or disappeared");
+    let chord_of = |action: &str| {
+        after
+            .iter()
+            .flat_map(|g| &g.bindings)
+            .find(|b| b.context == BridgeKeyContext::Global && b.action == action)
+            .map(|b| b.chord.clone())
+    };
+    assert_eq!(chord_of("file.save").as_deref(), Some("Mod+Z"));
+    assert_eq!(
+        chord_of(taken_from.as_str()).as_deref(),
+        Some(""),
+        "the action that lost its chord keeps its row"
+    );
 }
 
 // ---------------------------------------------------------------------------

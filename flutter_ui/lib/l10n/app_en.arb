@@ -13482,5 +13482,74 @@
         "type": "String"
       }
     }
+  },
+  "settingsGroupGraphicsCard": "Graphics card",
+  "@settingsGroupGraphicsCard": {
+    "description": "Settings window, Preview and cache page: heading over the rows naming which graphics card the Viewer and the interface are drawn on."
+  },
+  "settingsAdapterViewer": "Viewer drawn on",
+  "@settingsAdapterViewer": {
+    "description": "Settings, graphics card: the name of the row showing the graphics card the engine draws the Viewer's picture on. The row's value is the card's name."
+  },
+  "settingsAdapterInterface": "Interface drawn on",
+  "@settingsAdapterInterface": {
+    "description": "Settings, graphics card: the name of the row showing the graphics card the application's interface (panels, buttons) is drawn on. The row's value is the card's name."
+  },
+  "settingsAdapterKindIntegrated": "Integrated",
+  "@settingsAdapterKindIntegrated": {
+    "description": "Settings, graphics card: the kind of card — one built into the processor. Shown under the card's name."
+  },
+  "settingsAdapterKindDedicated": "Dedicated",
+  "@settingsAdapterKindDedicated": {
+    "description": "Settings, graphics card: the kind of card — a separate card with its own memory. Shown under the card's name."
+  },
+  "settingsAdapterKindVirtual": "Virtual",
+  "@settingsAdapterKindVirtual": {
+    "description": "Settings, graphics card: the kind of card — a virtual machine's or remote session's. Shown under the card's name."
+  },
+  "settingsAdapterKindSoftware": "No graphics card",
+  "@settingsAdapterKindSoftware": {
+    "description": "Settings, graphics card: the kind of adapter — drawing on the processor because no graphics card is available. Shown under the adapter's name."
+  },
+  "settingsAdapterKindOther": "Unknown kind",
+  "@settingsAdapterKindOther": {
+    "description": "Settings, graphics card: shown under a card's name when its driver does not say what kind of card it is."
+  },
+  "settingsAdapterNotKnown": "Not known here",
+  "@settingsAdapterNotKnown": {
+    "description": "Settings, graphics card: the value of a row when the system would not say which card is in use, or on a platform where it cannot be asked."
+  },
+  "settingsAdapterSameCard": "Same card as the Viewer",
+  "@settingsAdapterSameCard": {
+    "description": "Settings, graphics card: shown under the interface's card when it is the same card the Viewer is drawn on — the healthy state."
+  },
+  "settingsAdapterDifferentCard": "A different card from the Viewer",
+  "@settingsAdapterDifferentCard": {
+    "description": "Settings, graphics card: shown under the interface's card when it is not the card the Viewer is drawn on — the state in which the Viewer stays empty."
+  },
+  "settingsHelpAdaptersDifferent": "The Viewer stays empty while these differ. In Windows Settings, open System, Display, Graphics, choose Lumit, set it to High performance, then restart Lumit.",
+  "@settingsHelpAdaptersDifferent": {
+    "description": "Settings, graphics card: the help line under the rows when the Viewer and the interface are on different cards. 'System', 'Display', 'Graphics' and 'High performance' are the names Windows itself uses in its Settings app; translate them as the Windows of that language names them."
+  },
+  "settingsAdaptersAlsoPresent": "Also in this machine: {names}",
+  "@settingsAdaptersAlsoPresent": {
+    "description": "Settings, graphics card: the help line listing the machine's other graphics cards, which the Viewer is not using. The placeholder is one or more card names separated by commas.",
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "adaptersDifferentNotice": "The Viewer is on {viewer} and the interface on {ui}, so no picture can show. Settings, Preview and cache, Graphics card says how to fix it.",
+  "@adaptersDifferentNotice": {
+    "description": "Status line notice, shown once a session when the engine and the interface are drawing on different graphics cards, which leaves the Viewer empty. Both placeholders are graphics card names, such as 'Intel(R) UHD Graphics'. 'Preview and cache' and 'Graphics card' name a Settings page and its section, and must match those strings.",
+    "placeholders": {
+      "viewer": {
+        "type": "String"
+      },
+      "ui": {
+        "type": "String"
+      }
+    }
   }
 }
